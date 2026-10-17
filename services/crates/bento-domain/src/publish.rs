@@ -144,10 +144,16 @@ impl Message {
                 if used + weight + ellipsis > budget {
                     // A word longer than what is left is cut by characters, but never inside a
                     // link, which would then count as text rather than as a link.
-                    if !split_link(word).0.is_empty() {
-                        break;
+                    let (head, rest) = word.split_at(leading_link(word));
+                    if !head.is_empty() {
+                        let weight = limits.weight(head);
+                        if used + weight + ellipsis > budget {
+                            break;
+                        }
+                        cut.push_str(head);
+                        used += weight;
                     }
-                    for c in word.chars() {
+                    for c in rest.chars() {
                         let weight = limits.weight(&c.to_string());
                         if used + weight + ellipsis > budget || c.is_whitespace() {
                             break;
@@ -182,15 +188,37 @@ pub struct TextLimits {
     pub wide_char_weight: usize,
 }
 
-/// A word's leading link, if it starts with one, and the rest.
-fn split_link(word: &str) -> (&str, &str) {
-    if !(word.starts_with("https://") || word.starts_with("http://")) {
-        return ("", word);
-    }
+/// The length in bytes of the link `word` starts with, or 0: `http(s)://…`, or a bare domain such
+/// as `github.com/x`, which X also counts as a link. A link ends at whitespace, at the first
+/// non-ASCII character (languages written without spaces often follow one directly) and before
+/// trailing punctuation.
+fn leading_link(word: &str) -> usize {
     let end = word
         .find(|c: char| !c.is_ascii() || c.is_ascii_whitespace())
         .unwrap_or(word.len());
-    word.split_at(end)
+    let candidate = word[..end].trim_end_matches(|c| ".,;:!?)]'\"".contains(c));
+    let is_link = if let Some(rest) = candidate
+        .strip_prefix("https://")
+        .or_else(|| candidate.strip_prefix("http://"))
+    {
+        !rest.is_empty()
+    } else {
+        looks_like_domain(candidate)
+    };
+    if is_link { candidate.len() } else { 0 }
+}
+
+/// `name.tld` with optional subdomains and path: letters, digits and dashes per label, and a
+/// top-level part of two or more letters.
+fn looks_like_domain(text: &str) -> bool {
+    let host = text.split(['/', '?', '#']).next().unwrap_or_default();
+    let Some((name, tld)) = host.rsplit_once('.') else {
+        return false;
+    };
+    let label = |part: &str| {
+        !part.is_empty() && part.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    };
+    name.split('.').all(label) && tld.len() >= 2 && tld.chars().all(|c| c.is_ascii_alphabetic())
 }
 
 fn default_url_chars() -> usize {
@@ -202,15 +230,19 @@ fn default_wide_char_weight() -> usize {
 }
 
 impl TextLimits {
-    /// The counted length of `text`: a link counts `url_chars`. A link ends at whitespace or at
-    /// the first non-ASCII character, as text in languages written without spaces often follows
-    /// one directly.
+    /// The counted length of `text`: a link (see `leading_link`) counts `url_chars`.
     #[must_use]
     pub fn weight(&self, text: &str) -> usize {
         text.split_inclusive(char::is_whitespace)
             .map(|word| {
-                let (link, rest) = split_link(word);
-                let link = if link.is_empty() { 0 } else { self.url_chars };
+                let (link, rest) = word.split_at(leading_link(word));
+                // X counts a link as `url_chars`; a bare domain is never counted shorter than it
+                // is written, in case X does not take it for a link.
+                let link = match link {
+                    "" => 0,
+                    link if link.starts_with("http") => self.url_chars,
+                    link => self.url_chars.max(link.len()),
+                };
                 link + rest.chars().map(|c| self.char_weight(c)).sum::<usize>()
             })
             .sum()
@@ -318,6 +350,19 @@ mod tests {
             "the link ends at CJK text"
         );
         post.title = Some(format!("标题\nhttps://a.com/p。{}", "中".repeat(150)));
+        let text = post.short_text(&limits);
+        assert!(limits.weight(&text) <= 280, "{}", limits.weight(&text));
+        assert!(
+            text.contains("https://a.com/p。中"),
+            "text after a link is kept: {text}"
+        );
+
+        // Bare domains and punctuation after a link are never counted short.
+        assert_eq!(limits.weight("on github.com and"), 3 + 23 + 4);
+        assert_eq!(limits.weight("see https://a.com/p."), 4 + 23 + 1);
+        assert_eq!(limits.weight("e.g. U.S."), 9, "abbreviations are not links");
+        post.title = None;
+        post.text = format!("Launch post on github.com and {}", "lorem ".repeat(60));
         let text = post.short_text(&limits);
         assert!(limits.weight(&text) <= 280, "{}", limits.weight(&text));
     }

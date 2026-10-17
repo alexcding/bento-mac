@@ -94,6 +94,20 @@ mod tests {
     }
 
     #[test]
+    fn creates_instance_id() {
+        let store = SqliteStore::open_in_memory().unwrap();
+        let id: String = store
+            .connection()
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'instance_id'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(id.len(), 32);
+    }
+
+    #[test]
     fn reopening_is_idempotent() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("collector.sqlite");

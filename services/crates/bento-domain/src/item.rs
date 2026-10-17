@@ -180,6 +180,17 @@ mod tests {
         assert_eq!(raw.reference.unwrap().kind, ReferenceKind::Quote);
     }
 
+    /// `testdata/outbox-item.json` is also decoded by the Swift tests.
+    #[test]
+    fn feed_item_matches_shared_fixture() {
+        let fixture = include_str!("../../../testdata/outbox-item.json");
+        let item: FeedItem = serde_json::from_str(fixture).unwrap();
+        assert_eq!(item.published_at, at(9));
+        assert_eq!(item.media[1].kind, MediaKind::Video);
+        let expected: serde_json::Value = serde_json::from_str(fixture).unwrap();
+        assert_eq!(serde_json::to_value(&item).unwrap(), expected);
+    }
+
     #[test]
     fn missing_date_falls_back_to_fetch_time() {
         let source = Uuid::from_u128(7);

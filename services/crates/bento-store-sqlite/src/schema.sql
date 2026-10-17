@@ -10,3 +10,11 @@ CREATE TABLE outbox (
   detail     BLOB,
   created_at INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER))
 ) STRICT;
+
+-- `instance_id` identifies this database file. The app keys its outbox cursor by it, so a
+-- recreated database (whose `seq` restarts at 1) is read from the beginning.
+CREATE TABLE meta (
+  key   TEXT PRIMARY KEY NOT NULL,
+  value TEXT NOT NULL
+) STRICT;
+INSERT INTO meta (key, value) VALUES ('instance_id', lower(hex(randomblob(16))));

@@ -1,0 +1,22 @@
+{
+  "id": "45494751-1472-5c8f-9c00-76446f6c1b1f",
+  "source_id": "6f1c2a52-1d0e-4c7a-9a52-2f7e1b1c9d10",
+  "external_id": "1834567890123456789",
+  "url": "https://x.com/example/status/1834567890123456789",
+  "title": null,
+  "text": "Post text",
+  "translated_title": "翻译标题",
+  "summary": "Summary",
+  "author_name": "Example",
+  "author_handle": "@example",
+  "author_avatar_url": "https://example.com/a.jpg",
+  "media": [
+    { "type": "image", "url": "https://example.com/1.jpg", "width": 1200, "height": 675 },
+    { "type": "video", "url": "https://youtu.be/x", "thumbnail_url": "https://example.com/t.jpg", "duration": 312.5, "embed_url": "https://www.youtube.com/embed/x" }
+  ],
+  "reference_item_id": "6c33f2ab-add7-5b3d-885f-1cfc1056988c",
+  "published_at": 1792141200000,
+  "is_published_at_estimated": false,
+  "language": "en",
+  "fetched_at": 1792141260000
+}

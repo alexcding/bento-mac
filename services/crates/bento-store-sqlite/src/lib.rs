@@ -163,6 +163,50 @@ mod tests {
         }
     }
 
+    /// Sources that ran before `last_success_at` existed keep counting as having succeeded.
+    #[test]
+    fn migration_6_backfills_last_success_from_history() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("collector.sqlite");
+        let mut connection = Connection::open(&path).unwrap();
+        let transaction = connection.transaction().unwrap();
+        for sql in &MIGRATIONS[..5] {
+            transaction.execute_batch(sql).unwrap();
+        }
+        transaction.pragma_update(None, "user_version", 5).unwrap();
+        transaction
+            .execute_batch(
+                "INSERT INTO source_state (source_id, last_run_at, next_run_at, consecutive_failures)
+                   VALUES ('ok', 300, 900, 0), ('failing-now', 400, 900, 2), ('never-ran-ok', 500, 900, 1);
+                 INSERT INTO run_log (source_id, started_at, duration_ms, fetched, too_old, new_items, error)
+                   VALUES ('failing-now', 200, 1, 1, 0, 1, NULL), ('failing-now', 400, 1, 0, 0, 0, 'timeout'),
+                          ('never-ran-ok', 500, 1, 0, 0, 0, 'login');",
+            )
+            .unwrap();
+        transaction.commit().unwrap();
+        drop(connection);
+
+        let store = SqliteStore::open(&path).unwrap();
+
+        let success = |id: &str| -> Option<i64> {
+            store
+                .connection()
+                .query_row(
+                    "SELECT last_success_at FROM source_state WHERE source_id = ?1",
+                    [id],
+                    |r| r.get(0),
+                )
+                .unwrap()
+        };
+        assert_eq!(
+            success("ok"),
+            Some(300),
+            "no history, last run did not fail"
+        );
+        assert_eq!(success("failing-now"), Some(200), "latest successful run");
+        assert_eq!(success("never-ran-ok"), None, "still on its first run");
+    }
+
     #[test]
     fn refuses_newer_schema() {
         let dir = tempfile::tempdir().unwrap();

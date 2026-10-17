@@ -126,15 +126,20 @@ impl KeychainSecrets {
     /// attributes out of an update query.
     fn write_synced(&self, account: &str, value: &str) -> Result<(), PortError> {
         ignore_missing(delete_generic_password_options(self.synced(account)))?;
+        set_generic_password_options(value.as_bytes(), self.synced_write(account))
+            .map_err(PortError::new)
+    }
+
+    /// The attributes a synced item is added with.
+    fn synced_write(&self, account: &str) -> PasswordOptions {
         let mut options = self.synced(account);
-        let accessible = (
-            CFString::from_static_string(ATTR_ACCESSIBLE),
-            CFString::from_static_string(ACCESSIBLE_AFTER_FIRST_UNLOCK).into_CFType(),
-        );
         // `PasswordOptions` has no setter for plain accessibility.
         #[allow(deprecated)]
-        options.query.push(accessible);
-        set_generic_password_options(value.as_bytes(), options).map_err(PortError::new)
+        options.query.push((
+            CFString::from_static_string(ATTR_ACCESSIBLE),
+            CFString::from_static_string(ACCESSIBLE_AFTER_FIRST_UNLOCK).into_CFType(),
+        ));
+        options
     }
 
     /// Removes a secret; removing one that is not set is not an error.
@@ -184,10 +189,10 @@ mod tests {
     fn round_trips_through_the_keychain() {
         let store = KeychainSecrets::with_service("com.alexcding.bento.tests");
         assert_eq!(store.backend().unwrap(), Backend::Local);
-        // The synced write's attributes are accepted: an unsigned binary is refused for its
+        // The synced write's attributes are accepted: an unsigned binary's add is refused for its
         // missing entitlement, not for a bad parameter (`errSecParam`, -50).
-        let error = store.write_synced("p.k", "v").unwrap_err().to_string();
-        assert!(error.contains("entitlement"), "{error}");
+        let error = set_generic_password_options(b"v", store.synced_write("p.k")).unwrap_err();
+        assert_eq!(error.code(), MISSING_ENTITLEMENT);
         store.delete("p", "k").unwrap();
         assert_eq!(store.secret("p", "k").unwrap(), None);
 

@@ -69,6 +69,16 @@ final class CollectorService: SourceStatusProviding {
       let json = output.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
       self?.secretsSynced = json?["synced"] as? Bool ?? false
     }
+    // Sources are listed from the plugin catalog, which the daemon only writes while it runs;
+    // writing it here lists them on every Mac, collecting or not.
+    Task { [weak self] in
+      do {
+        _ = try await CollectorCommand.run(["plugin", "catalog"])
+        await self?.sync()
+      } catch {
+        logger.error("Writing the plugin catalog failed: \(error)")
+      }
+    }
     pollTask = Task { [weak self] in
       while !Task.isCancelled {
         await self?.sync()

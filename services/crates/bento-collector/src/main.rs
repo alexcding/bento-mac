@@ -118,6 +118,10 @@ enum SecretsAction {
 enum PluginAction {
     /// List loaded plugins and load errors.
     List,
+    /// Check every plugin's requirements and write the catalog the app lists sources from, without
+    /// collecting anything. The app runs it at launch, so sources show even while the daemon is
+    /// stopped or another Mac collects.
+    Catalog,
     /// Map a saved command output with a plugin's mapping and print the items as JSON.
     Test {
         /// Plugin folder.
@@ -186,6 +190,12 @@ async fn main() -> Result<()> {
                 json,
             )
             .await
+        }
+        Command::Plugin {
+            action: PluginAction::Catalog,
+        } => {
+            let registry = plugins::load(&directories, &secrets);
+            plugins::publish_catalog(&registry, &open_store(&data_dir)?).await
         }
         Command::Plugin { action } => plugin_command(&directories, &secrets, action),
     }
@@ -448,6 +458,7 @@ fn plugin_command(
             }
         }
         PluginAction::Auth { .. } => unreachable!("handled in main"),
+        PluginAction::Catalog => unreachable!("handled in main, which has the store"),
         PluginAction::Test { folder, output } => {
             let folder = folder
                 .canonicalize()

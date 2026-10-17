@@ -142,7 +142,11 @@ impl Message {
             for word in body.split_inclusive(char::is_whitespace) {
                 let weight = limits.weight(word);
                 if used + weight + ellipsis > budget {
-                    // A word longer than what is left is cut by characters.
+                    // A word longer than what is left is cut by characters, but never inside a
+                    // link, which would then count as text rather than as a link.
+                    if !split_link(word).0.is_empty() {
+                        break;
+                    }
                     for c in word.chars() {
                         let weight = limits.weight(&c.to_string());
                         if used + weight + ellipsis > budget || c.is_whitespace() {
@@ -178,6 +182,17 @@ pub struct TextLimits {
     pub wide_char_weight: usize,
 }
 
+/// A word's leading link, if it starts with one, and the rest.
+fn split_link(word: &str) -> (&str, &str) {
+    if !(word.starts_with("https://") || word.starts_with("http://")) {
+        return ("", word);
+    }
+    let end = word
+        .find(|c: char| !c.is_ascii() || c.is_ascii_whitespace())
+        .unwrap_or(word.len());
+    word.split_at(end)
+}
+
 fn default_url_chars() -> usize {
     23
 }
@@ -187,17 +202,16 @@ fn default_wide_char_weight() -> usize {
 }
 
 impl TextLimits {
-    /// The counted length of `text`: links count `url_chars`.
+    /// The counted length of `text`: a link counts `url_chars`. A link ends at whitespace or at
+    /// the first non-ASCII character, as text in languages written without spaces often follows
+    /// one directly.
     #[must_use]
     pub fn weight(&self, text: &str) -> usize {
         text.split_inclusive(char::is_whitespace)
             .map(|word| {
-                let trimmed = word.trim_end();
-                if trimmed.starts_with("https://") || trimmed.starts_with("http://") {
-                    self.url_chars + (word.len() - trimmed.len())
-                } else {
-                    word.chars().map(|c| self.char_weight(c)).sum()
-                }
+                let (link, rest) = split_link(word);
+                let link = if link.is_empty() { 0 } else { self.url_chars };
+                link + rest.chars().map(|c| self.char_weight(c)).sum::<usize>()
             })
             .sum()
     }
@@ -298,6 +312,14 @@ mod tests {
             limits.weight("see https://example.com/very/long/path"),
             4 + 23
         );
+        assert_eq!(
+            limits.weight("https://a.com/p。中中"),
+            23 + 2 * 3,
+            "the link ends at CJK text"
+        );
+        post.title = Some(format!("标题\nhttps://a.com/p。{}", "中".repeat(150)));
+        let text = post.short_text(&limits);
+        assert!(limits.weight(&text) <= 280, "{}", limits.weight(&text));
     }
 
     #[test]

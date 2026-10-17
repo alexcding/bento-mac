@@ -43,6 +43,8 @@ pub enum FetchError {
         program: String,
         status: String,
         stderr: String,
+        /// The start of stdout: some programs print their error there (`--json` modes).
+        stdout: String,
     },
 }
 
@@ -241,6 +243,7 @@ pub(crate) async fn run_command(
                 program,
                 status: status.to_string(),
                 stderr: tail,
+                stdout: String::from_utf8_lossy(&out).chars().take(4000).collect(),
             });
         }
         _ => {}

@@ -88,27 +88,55 @@ fn classify(error: &FetchError) -> Result<(), PublishError> {
         FetchError::NotInstalled { .. } | FetchError::NoCommand(_) => {
             Err(PublishError::Rejected(error.to_string()))
         }
-        FetchError::Failed { stderr, .. } => {
-            let lower = stderr.to_lowercase();
+        FetchError::Failed { stderr, stdout, .. } => {
+            // `--json` commands print `{"ok": false, "error": {"code", "message"}}` on stdout.
+            let json: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_default();
+            let code = json
+                .pointer("/error/code")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            let message = json
+                .pointer("/error/message")
+                .and_then(serde_json::Value::as_str)
+                .map_or_else(|| stderr.trim().to_owned(), str::to_owned);
+            let lower = format!("{message} {stderr}").to_lowercase();
             let has = |words: &[&str]| words.iter().any(|word| lower.contains(word));
-            if has(&["duplicate"]) {
+            // X's numbered errors: 187 duplicate; 88, 344, 348, 349 limits; 186 too long.
+            if has(&["duplicate", "(187)"]) {
                 Ok(()) // the same post is already there: an earlier attempt went out
-            } else if has(&["rate_limited", "rate limit", "429"]) {
+            } else if code == "rate_limited"
+                || has(&[
+                    "rate_limited",
+                    "rate limit",
+                    "429",
+                    "(88)",
+                    "(344)",
+                    "(348)",
+                    "(349)",
+                    "daily limit",
+                ])
+            {
                 Err(PublishError::RateLimited(RATE_LIMIT_WAIT))
-            } else if has(&[
-                "not_authenticated",
-                "401",
-                "403",
-                "unauthorized",
-                "forbidden",
-            ]) {
+            } else if code == "not_authenticated"
+                || has(&[
+                    "not_authenticated",
+                    "401",
+                    "403",
+                    "unauthorized",
+                    "forbidden",
+                ])
+            {
                 Err(PublishError::Rejected(format!(
-                    "sign-in expired; update it in Settings → Plugins ({stderr})"
+                    "sign-in expired; update it in Settings → Plugins ({message})"
                 )))
-            } else if has(&["invalid_input"]) {
-                Err(PublishError::Rejected(stderr.clone()))
+            } else if code == "invalid_input" || has(&["invalid_input", "(186)", "too long"]) {
+                Err(PublishError::Rejected(message))
             } else {
-                Err(PublishError::Failed(error.to_string()))
+                Err(PublishError::Failed(if message.is_empty() {
+                    error.to_string()
+                } else {
+                    message
+                }))
             }
         }
         FetchError::Spawn { .. } | FetchError::TooLarge { .. } => {
@@ -121,12 +149,48 @@ fn classify(error: &FetchError) -> Result<(), PublishError> {
 mod tests {
     use super::*;
 
-    fn failed(stderr: &str) -> FetchError {
+    fn failed_with(stdout: &str, stderr: &str) -> FetchError {
         FetchError::Failed {
             program: "twitter".into(),
             status: "exit status: 1".into(),
             stderr: stderr.into(),
+            stdout: stdout.into(),
         }
+    }
+
+    fn failed(stderr: &str) -> FetchError {
+        failed_with("", stderr)
+    }
+
+    #[test]
+    fn reads_the_structured_error_on_stdout() {
+        let json = |code: &str, message: &str| {
+            format!(
+                r#"{{"ok": false, "schema_version": "1", "error": {{"code": "{code}", "message": "{message}"}}}}"#
+            )
+        };
+        let duplicate = json(
+            "api_error",
+            "Twitter API returned errors: Status is a duplicate. (187)",
+        );
+        assert!(classify(&failed_with(&duplicate, "")).is_ok());
+        let expired = json("not_authenticated", "Cookie expired");
+        assert!(matches!(
+            classify(&failed_with(&expired, "")),
+            Err(PublishError::Rejected(_))
+        ));
+        let daily = json(
+            "api_error",
+            "You are over the daily limit for sending posts. (344)",
+        );
+        assert!(matches!(
+            classify(&failed_with(&daily, "")),
+            Err(PublishError::RateLimited(_))
+        ));
+        let other = json("api_error", "Something broke");
+        assert!(
+            matches!(classify(&failed_with(&other, "")), Err(PublishError::Failed(m)) if m == "Something broke")
+        );
     }
 
     #[test]

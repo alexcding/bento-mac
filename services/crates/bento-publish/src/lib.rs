@@ -216,12 +216,14 @@ impl Publishers {
             .ok()?
             .error_for_status()
             .ok()?;
-        let extension = match response
+        let content_type = response
             .headers()
             .get(reqwest::header::CONTENT_TYPE)?
             .to_str()
-            .ok()?
-        {
+            .ok()?;
+        // Parameters such as `; charset=binary` do not matter.
+        let media_type = content_type.split(';').next()?.trim().to_ascii_lowercase();
+        let extension = match media_type.as_str() {
             "image/jpeg" | "image/jpg" => ".jpg",
             "image/png" => ".png",
             "image/webp" => ".webp",
@@ -574,7 +576,7 @@ mod tests {
         Mock::given(path("/a.png"))
             .respond_with(
                 ResponseTemplate::new(200)
-                    .insert_header("content-type", "image/png")
+                    .insert_header("content-type", "image/png; charset=binary")
                     .set_body_bytes(vec![1, 2, 3]),
             )
             .mount(&server)

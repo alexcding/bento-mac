@@ -119,6 +119,14 @@ import Testing
 
       try Mutations.deleteAiTask(db, id: task.id)
       #expect(try Source.find(sourceID).fetchOne(db)?.aiTaskKeys == ["other"])
+
+      let unkeyed = AiTask()
+      try Mutations.saveAiTask(db, unkeyed)
+      var withUnkeyed = try #require(try Source.find(sourceID).fetchOne(db))
+      withUnkeyed.aiTaskKeys = [unkeyed.sourceKey, "other"]
+      try Mutations.updateSource(db, withUnkeyed)
+      try Mutations.deleteAiTask(db, id: unkeyed.id)
+      #expect(try Source.find(sourceID).fetchOne(db)?.aiTaskKeys == ["other"], "tasks without a key use their ID")
     }
   }
 
@@ -138,5 +146,27 @@ import Testing
     source.limit = 30
     #expect(source.settingsJSON == #"{"limit":30}"#)
     #expect(source.limit == 30)
+  }
+}
+
+@Suite struct MigrationTests {
+  /// A database created before the AI tables existed upgrades in place.
+  @Test func upgradesADatabaseFromTheFirstMigration() throws {
+    let url = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString).sqlite")
+    let database = try DatabaseQueue(path: url.path)
+    try BentoDatabase.migrator.migrate(database, upTo: "Create tables")
+    try database.write { db in
+      try #sql(#"INSERT INTO "sources" ("id", "pluginID", "name") VALUES ('6f1c2a52-1d0e-4c7a-9a52-2f7e1b1c9d10', 'rss', 'Old')"#)
+        .execute(db)
+    }
+
+    try BentoDatabase.migrator.migrate(database)
+
+    try database.write { db in
+      let old = try #require(try Source.all.fetchOne(db))
+      #expect(old.aiTaskKeys.isEmpty && !old.skipInitialBacklog, "existing rows get the defaults")
+      try Mutations.saveAiProfile(db, AiProfile())
+      #expect(try Mutations.settings(db).maxItemAgeHours == 72)
+    }
   }
 }

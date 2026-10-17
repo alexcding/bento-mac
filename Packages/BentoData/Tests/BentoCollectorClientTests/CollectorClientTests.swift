@@ -125,7 +125,7 @@ import Testing
       for migration in try collectorMigrations() { try db.execute(sql: migration) }
       try db.execute(
         sql: """
-          INSERT INTO source_state VALUES
+          INSERT INTO source_state (source_id, last_run_at, next_run_at, consecutive_failures, last_error, last_new_items) VALUES
             ('6f1c2a52-1d0e-4c7a-9a52-2f7e1b1c9d10', 1792141200000, 1792143000000, 2, 'timeout', 5)
           """
       )

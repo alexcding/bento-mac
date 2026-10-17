@@ -16,6 +16,8 @@ public final class ChannelSettingsViewModel: Identifiable {
   var name = ""
   var newSourcePluginID = "rss"
   var newSourceQuery = ""
+  /// Set on the new source before its first fetch, which can follow within seconds.
+  var newSourceSkipsBacklog = false
   /// The source being edited, shown as a sheet over the channel settings.
   var sourceEditor: SourceEditorViewModel?
   @ObservationIgnored public var onAction: (Action) -> Void = { _ in }
@@ -90,7 +92,13 @@ public final class ChannelSettingsViewModel: Identifiable {
   func addSource() {
     guard let plugin = newSourcePlugin, plugin.accepts(query: newSourceQuery) else { return }
     withErrorReporting {
-      try store.addSource(channelID: channelID, pluginID: plugin.id, query: newSourceQuery, name: nil)
+      try store.addSource(
+        channelID: channelID,
+        pluginID: plugin.id,
+        query: newSourceQuery,
+        name: nil,
+        skipInitialBacklog: newSourceSkipsBacklog
+      )
     }
     newSourceQuery = ""
   }

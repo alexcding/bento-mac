@@ -35,7 +35,8 @@ public enum Mutations {
     pluginID: String,
     name: String,
     query: String,
-    intervalMinutes: Int = 30
+    intervalMinutes: Int = 30,
+    skipInitialBacklog: Bool = false
   ) throws -> Source.ID {
     let id = UUID()
     try Source.insert {
@@ -49,7 +50,8 @@ public enum Mutations {
         translate: false,
         summarize: false,
         fetchDetail: false,
-        isEnabled: true
+        isEnabled: true,
+        skipInitialBacklog: skipInitialBacklog
       )
     }
     .execute(db)
@@ -133,8 +135,9 @@ public enum Mutations {
   /// Deletes a task and removes its key from sources.
   public static func deleteAiTask(_ db: Database, id: AiTask.ID) throws {
     guard let task = try AiTask.find(id).fetchOne(db) else { return }
-    for var source in try Source.all.fetchAll(db) where source.aiTaskKeys.contains(task.key) {
-      source.aiTaskKeys.removeAll { $0 == task.key }
+    let key = task.sourceKey
+    for var source in try Source.all.fetchAll(db) where source.aiTaskKeys.contains(key) {
+      source.aiTaskKeys.removeAll { $0 == key }
       try updateSource(db, source)
     }
     try AiTask.find(id).delete().execute(db)

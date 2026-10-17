@@ -62,7 +62,7 @@ public final class SourceEditorViewModel: Identifiable {
 
   /// The key a source stores for a task: its `key`, or its ID for tasks without one.
   static func key(for task: AiTask) -> String {
-    task.key.isEmpty ? task.id.uuidString.lowercased() : task.key
+    task.sourceKey
   }
 
   func isTaskOn(_ task: AiTask) -> Bool {

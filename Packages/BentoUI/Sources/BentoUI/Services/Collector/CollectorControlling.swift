@@ -57,10 +57,13 @@ public struct RunSummary: Equatable, Sendable {
 public struct PreviewResult: Equatable, Sendable {
   public var items: [FeedItem]
   public var aiFailures: [String]
+  /// Existing posts a first run would skip (the source skips its backlog).
+  public var backlogSkipped: Int
 
-  public init(items: [FeedItem], aiFailures: [String]) {
+  public init(items: [FeedItem], aiFailures: [String], backlogSkipped: Int = 0) {
     self.items = items
     self.aiFailures = aiFailures
+    self.backlogSkipped = backlogSkipped
   }
 }
 

@@ -299,7 +299,8 @@ async fn run_once(
         .find(|s| s.id == source_id)
         .with_context(|| format!("no source {source_id} in the config"))?;
     let summary = if dry_run {
-        let (prepared, enrich) = scheduler.dry_run(source, &config).await?;
+        let preview = scheduler.dry_run(source, &config).await?;
+        let (prepared, enrich) = (preview.prepared, preview.enrich);
         let items: Vec<serde_json::Value> = prepared
             .items
             .iter()
@@ -308,6 +309,7 @@ async fn run_once(
         serde_json::json!({
             "fetched": prepared.fetched, "too_old": prepared.too_old, "items": items,
             "articles": enrich.details_extracted, "ai_failures": enrich.ai_failures,
+            "backlog_skipped": preview.backlog_skipped,
         })
     } else {
         let report = scheduler.run_now(source, &config).await?;

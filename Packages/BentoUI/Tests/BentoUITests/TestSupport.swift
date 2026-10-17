@@ -24,8 +24,8 @@ final class FakeLibraryStore: LibraryStoring {
   }
   func updateChannel(_ channel: Channel) throws { calls.append("updateChannel(\(channel.name),\(channel.isEnabled))") }
   func deleteChannel(_ id: Channel.ID) throws { calls.append("deleteChannel") }
-  func addSource(channelID: Channel.ID, pluginID: String, query: String, name: String?) throws {
-    calls.append("addSource(\(pluginID),\(query))")
+  func addSource(channelID: Channel.ID, pluginID: String, query: String, name: String?, skipInitialBacklog: Bool) throws {
+    calls.append("addSource(\(pluginID),\(query),\(skipInitialBacklog))")
   }
   func updateSource(_ source: Source) throws { calls.append("updateSource") }
   func deleteSource(_ id: Source.ID) throws { calls.append("deleteSource") }

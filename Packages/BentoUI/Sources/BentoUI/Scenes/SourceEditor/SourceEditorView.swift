@@ -104,6 +104,11 @@ private struct PreviewList: View {
             ForEach(preview.aiFailures, id: \.self) { Text($0).font(.caption).foregroundStyle(.orange) }
           }
         }
+        if preview.backlogSkipped > 0 {
+          Section {
+            Text("The first fetch will skip the \(preview.backlogSkipped) posts that already exist and collect only newer ones.")
+          }
+        }
         Section(preview.items.isEmpty ? "Nothing new" : "\(preview.items.count) new items") {
           ForEach(preview.items) { item in
             FeedCard(model: FeedCardModel(item)).listRowSeparator(.hidden)

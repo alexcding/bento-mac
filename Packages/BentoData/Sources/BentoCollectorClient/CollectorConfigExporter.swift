@@ -65,7 +65,7 @@ public enum CollectorConfigExporter {
     }
     let tasks = try AiTask.order(by: \.position).fetchAll(db).map { task -> [String: Any] in
       [
-        "id": task.key.isEmpty ? id(task.id) : task.key,
+        "id": task.sourceKey,
         "name": task.name,
         "profile": task.profileID.map(id) ?? "",
         "fallback": task.fallback.map(id),

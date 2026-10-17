@@ -36,8 +36,10 @@ public final class LoginViewModel: Identifiable {
       failure = nil
     case .done:
       isDone = true
+      prompt = nil
     case .failed(let message):
       failure = message
+      prompt = nil  // the login has ended; there is nothing left to answer
     }
   }
 

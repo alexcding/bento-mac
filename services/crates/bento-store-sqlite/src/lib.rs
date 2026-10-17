@@ -36,6 +36,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/003_run_log.sql"),
     include_str!("migrations/004_plugins.sql"),
     include_str!("migrations/005_ai_calls.sql"),
+    include_str!("migrations/006_last_success.sql"),
 ];
 
 pub struct SqliteStore {
@@ -122,7 +123,7 @@ mod tests {
             .connection()
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
     }
 
     #[test]

@@ -45,7 +45,11 @@ extension CollectorService: CollectorControlling {
       guard let item = entry["item"] else { return nil }
       return try decodeCollectorFeedItem(JSONSerialization.data(withJSONObject: item))
     }
-    return PreviewResult(items: items, aiFailures: json["ai_failures"] as? [String] ?? [])
+    return PreviewResult(
+      items: items,
+      aiFailures: json["ai_failures"] as? [String] ?? [],
+      backlogSkipped: json["backlog_skipped"] as? Int ?? 0
+    )
   }
 }
 
@@ -103,6 +107,8 @@ final class CollectorLoginSession: LoginSession {
     process.standardOutput = output
     process.standardError = errors
     process.standardInput = input
+    // A write racing the process's exit must fail with EPIPE, not kill the app with SIGPIPE.
+    _ = fcntl(input.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
     events = AsyncStream { continuation in
       Task.detached {
         do {
@@ -148,6 +154,8 @@ final class CollectorLoginSession: LoginSession {
   }
 
   func send(_ text: String) {
+    // Writing after the process exited would raise SIGPIPE (see init); skip it.
+    guard process.isRunning else { return }
     try? input.fileHandleForWriting.write(contentsOf: Data((text + "\n").utf8))
   }
 

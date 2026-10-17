@@ -13,4 +13,4 @@ pub use ports::{
     OutboxEntry, PortError, RunRecord, SecretStore, SourceFetcher, SourceState, SourceStateStore,
     SystemClock,
 };
-pub use schedule::{FetcherRegistry, RunReport, Scheduler};
+pub use schedule::{DryRun, FetcherRegistry, RunReport, Scheduler};

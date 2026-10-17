@@ -44,6 +44,14 @@ struct ChannelSettingsView: View {
   }
 
   private var addSourceRow: some View {
+    VStack(alignment: .leading) {
+      addSourceFields
+      Toggle("Skip posts that already exist", isOn: $model.newSourceSkipsBacklog)
+        .font(.caption)
+    }
+  }
+
+  private var addSourceFields: some View {
     HStack {
       Picker("Type", selection: $model.newSourcePluginID) {
         ForEach(model.availablePlugins) { plugin in

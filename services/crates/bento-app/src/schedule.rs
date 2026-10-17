@@ -20,6 +20,15 @@ pub type FetcherRegistry = HashMap<String, Arc<dyn SourceFetcher>>;
 /// interval.
 const FIRST_RETRY: Duration = Duration::minutes(1);
 
+/// What a run would add, without storing it.
+#[derive(Debug)]
+pub struct DryRun {
+    pub prepared: Prepared,
+    pub enrich: EnrichReport,
+    /// Posts a first run would mark as seen instead of storing.
+    pub backlog_skipped: usize,
+}
+
 #[derive(Debug)]
 pub struct RunReport {
     pub source_id: Uuid,
@@ -85,15 +94,31 @@ impl<S: SourceStateStore, O: Outbox, C: Clock> Scheduler<S, O, C> {
     }
 
     /// Fetches, filters and enriches one source without storing anything or touching its
-    /// schedule: a preview of what the next run would add.
+    /// schedule: a preview of what the next run would add. A source that would skip its backlog
+    /// reports how many posts it would skip instead.
     pub async fn dry_run(
         &self,
         source: &SourceConfig,
         config: &CollectorConfig,
-    ) -> Result<(Prepared, EnrichReport), PortError> {
+    ) -> Result<DryRun, PortError> {
         let mut prepared = self.fetch_prepared(source, config).await?;
+        if source.skip_initial_backlog
+            && never_succeeded(self.states.source_state(source.id)?.as_ref())
+        {
+            let backlog_skipped = prepared.items.len();
+            prepared.items.clear();
+            return Ok(DryRun {
+                prepared,
+                enrich: EnrichReport::default(),
+                backlog_skipped,
+            });
+        }
         let enrich = self.enrich(source, config, &mut prepared).await;
-        Ok((prepared, enrich))
+        Ok(DryRun {
+            prepared,
+            enrich,
+            backlog_skipped: 0,
+        })
     }
 
     async fn run_and_record(
@@ -105,7 +130,9 @@ impl<S: SourceStateStore, O: Outbox, C: Clock> Scheduler<S, O, C> {
         let started_at = self.clock.now();
         let timer = std::time::Instant::now();
         let mut enrich = EnrichReport::default();
-        let outcome = self.run(source, config, state.is_none(), &mut enrich).await;
+        let outcome = self
+            .run(source, config, never_succeeded(state.as_ref()), &mut enrich)
+            .await;
         let duration_ms = u64::try_from(timer.elapsed().as_millis()).unwrap_or(u64::MAX);
         self.states
             .record_run(&run_record(source.id, started_at, duration_ms, &outcome))?;
@@ -177,6 +204,12 @@ impl<S: SourceStateStore, O: Outbox, C: Clock> Scheduler<S, O, C> {
     }
 }
 
+/// A source's first run, for skipping its backlog: no run has ever succeeded (a failed first
+/// attempt still counts as not yet run).
+fn never_succeeded(state: Option<&SourceState>) -> bool {
+    state.is_none_or(|s| s.last_success_at.is_none())
+}
+
 /// Saturday or Sunday at `utc_offset_minutes` from UTC.
 fn is_weekend(now: DateTime<Utc>, utc_offset_minutes: i32) -> bool {
     let local = now + Duration::minutes(i64::from(utc_offset_minutes));
@@ -239,6 +272,7 @@ fn next_state(
             consecutive_failures: 0,
             last_error: None,
             last_new_items: report.written,
+            last_success_at: Some(now),
         },
         Err(error) => {
             let failures = previous.as_ref().map_or(0, |s| s.consecutive_failures) + 1;
@@ -248,7 +282,8 @@ fn next_state(
                 next_run_at: now + backoff(failures).min(interval),
                 consecutive_failures: failures,
                 last_error: Some(error.to_string()),
-                last_new_items: previous.map_or(0, |s| s.last_new_items),
+                last_new_items: previous.as_ref().map_or(0, |s| s.last_new_items),
+                last_success_at: previous.and_then(|s| s.last_success_at),
             }
         }
     }
@@ -470,6 +505,39 @@ mod tests {
     }
 
     #[test]
+    fn a_failed_first_fetch_still_skips_the_backlog_later_and_preview_says_so() {
+        let fetcher = FakeFetcher::new(vec![
+            Err("not signed in".into()),
+            Ok(items(&["a", "b"])),
+            Ok(items(&["a", "b"])),
+        ]);
+        let (states, outbox, clock) = (
+            FakeStates::default(),
+            FakeOutbox::default(),
+            FixedClock::at(9),
+        );
+        let scheduler = Scheduler::new(registry(fetcher), &states, &outbox, &clock);
+        let mut src = source(1, "rss", true);
+        src.skip_initial_backlog = true;
+        let cfg = config(vec![src.clone()]);
+        block_on(scheduler.run_due(&cfg)).unwrap();
+
+        let preview = block_on(scheduler.dry_run(&src, &cfg)).unwrap();
+        assert_eq!(
+            (preview.prepared.items.len(), preview.backlog_skipped),
+            (0, 2)
+        );
+
+        let run = block_on(scheduler.run_now(&src, &cfg)).unwrap();
+        assert_eq!(
+            run.outcome.unwrap().backlog_skipped,
+            2,
+            "the failed attempt was not a first run"
+        );
+        assert!(outbox.entries.borrow().is_empty());
+    }
+
+    #[test]
     fn run_now_ignores_the_schedule_and_dry_run_stores_nothing() {
         let fetcher = FakeFetcher::new(vec![
             Ok(items(&["a"])),
@@ -490,8 +558,8 @@ mod tests {
         assert_eq!(now.outcome.unwrap().written, 1, "not due, ran anyway");
 
         let runs_before = states.1.borrow().len();
-        let (preview, _) = block_on(scheduler.dry_run(&src, &cfg)).unwrap();
-        assert_eq!(preview.items[0].item.external_id, "c");
+        let preview = block_on(scheduler.dry_run(&src, &cfg)).unwrap();
+        assert_eq!(preview.prepared.items[0].item.external_id, "c");
         assert_eq!(outbox.entries.borrow().len(), 2, "dry run stored nothing");
         assert_eq!(states.1.borrow().len(), runs_before, "and recorded no run");
     }

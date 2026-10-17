@@ -101,6 +101,12 @@ public nonisolated struct AiTask: Hashable, Identifiable, Sendable {
     self.id = id
   }
 
+  /// What sources store to turn this task on: `key`, or the ID for tasks without one. Also the
+  /// task's ID in the collector config.
+  public var sourceKey: String {
+    key.isEmpty ? id.uuidString.lowercased() : key
+  }
+
   /// Output targets a task can fill.
   public static let targets = ["translated_title", "summary", "text", "detail"]
 

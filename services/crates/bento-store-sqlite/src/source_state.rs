@@ -9,7 +9,7 @@ impl SqliteStore {
     fn load_source_state(&self, source_id: Uuid) -> Result<Option<SourceState>, StoreError> {
         let connection = self.connection();
         let mut select = connection.prepare_cached(
-            "SELECT last_run_at, next_run_at, consecutive_failures, last_error, last_new_items
+            "SELECT last_run_at, next_run_at, consecutive_failures, last_error, last_new_items, last_success_at
              FROM source_state WHERE source_id = ?1",
         )?;
         let state = select
@@ -21,6 +21,7 @@ impl SqliteStore {
                     consecutive_failures: row.get(2)?,
                     last_error: row.get(3)?,
                     last_new_items: usize::try_from(row.get::<_, i64>(4)?).unwrap_or(0),
+                    last_success_at: row.get::<_, Option<i64>>(5)?.map(from_millis),
                 })
             })
             .optional()?;
@@ -31,14 +32,15 @@ impl SqliteStore {
         self.connection()
             .prepare_cached(
                 "INSERT INTO source_state
-                   (source_id, last_run_at, next_run_at, consecutive_failures, last_error, last_new_items)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                   (source_id, last_run_at, next_run_at, consecutive_failures, last_error, last_new_items, last_success_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
                  ON CONFLICT (source_id) DO UPDATE SET
                    last_run_at = excluded.last_run_at,
                    next_run_at = excluded.next_run_at,
                    consecutive_failures = excluded.consecutive_failures,
                    last_error = excluded.last_error,
-                   last_new_items = excluded.last_new_items",
+                   last_new_items = excluded.last_new_items,
+                   last_success_at = excluded.last_success_at",
             )?
             .execute(params![
                 state.source_id.to_string(),
@@ -47,6 +49,7 @@ impl SqliteStore {
                 state.consecutive_failures,
                 state.last_error,
                 i64::try_from(state.last_new_items).unwrap_or(i64::MAX),
+                state.last_success_at.map(|at| at.timestamp_millis()),
             ])?;
         Ok(())
     }
@@ -112,6 +115,7 @@ mod tests {
             consecutive_failures: failures,
             last_error: error.map(Into::into),
             last_new_items: 3,
+            last_success_at: None,
         }
     }
 

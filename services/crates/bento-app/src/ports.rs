@@ -126,6 +126,8 @@ pub struct SourceState {
     pub last_error: Option<String>,
     /// New items written by the last successful run.
     pub last_new_items: usize,
+    /// When a run last succeeded; `None` until the first success.
+    pub last_success_at: Option<DateTime<Utc>>,
 }
 
 /// One source run, kept for the app's run history and performance view.

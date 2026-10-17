@@ -13,11 +13,11 @@ results through iCloud. An iOS reader follows later. Notes are out of scope for 
 | UI | Native SwiftUI, shared between macOS and iOS. No web UI. |
 | Database | [sqlite-data](https://github.com/pointfreeco/sqlite-data) with CloudKit `SyncEngine` (needs macOS 14 / iOS 17). |
 | Sync scope | One iCloud account, private database. No sharing for now. |
-| AI | CLI only (Codex first). No HTTP providers. |
-| Sources | Plugins. First set: RSS (built-in), YouTube, X, Bilibili. |
-| Publishers | Built into the daemon behind the plugin interface: Discord webhook, Telegram bot, Telegram account (`grammers`). |
+| AI | One reusable AI service; every task is a config (provider, model, prompt, output schema). Providers: CLI (Codex, Claude, any) and OpenAI-compatible HTTP (DeepSeek and others). |
+| Sources | Plugins. Everything the previous service supported: RSS (built-in), X, Reddit, YouTube, Bilibili, Telegram, Xiaohongshu. |
+| Publishers | Built into the daemon behind the plugin interface: Discord webhook, Telegram bot, Telegram account (`grammers`), X posting. |
 | Retention | Feed items: forever (configurable). Article detail: 30 days, bookmarked items forever. Mac archive: forever, never synced. |
-| Out of scope | X auto-posting, rates, IPTV, GitHub runner, DB browser, notes (later, with a third-party native rich-text editor). |
+| Out of scope | Rates, IPTV, GitHub runner, DB browser. Notes come later, with a third-party native rich-text editor. |
 
 ## Architecture
 
@@ -102,9 +102,34 @@ Fetch: request `{ source: { id, query, settings }, cursor, limit }` → response
 2. Filter: max age, incremental window, already stored.
 3. Detail: `body_markdown`, else extract from `url` when the source has `fetchDetail` on
    (Readability port → Markdown, capped at 12,000 chars).
-4. AI via CLI: `translatedTitle`, `summary`, translated detail Markdown. Batching, retry ladder,
-   source-text fallback and a 10-minute pause after an auth failure.
+4. AI steps, configured per channel or source (see AI service): presets Translate and
+   Summarize fill `translatedTitle`, `summary` and translated detail Markdown; custom steps map
+   their outputs to item fields.
 5. Write to outbox → app syncs → publishers deliver.
+
+Run options carried over: dry run (process, do not store or publish), skip the initial backlog of a
+new source, skip weekends.
+
+### AI service
+
+One service (`bento-ai` crate in the daemon) behind one port: prompt + output schema → JSON. Every
+use is a task config, not code:
+
+```jsonc
+{ "id": "translate-zh", "name": "Translate to Chinese", "provider": "deepseek", "model": "deepseek-chat",
+  "prompt": "Translate to Simplified Chinese…\n{{title}}\n{{text}}",
+  "outputs": { "title": "translatedTitle", "text": "detailMarkdown" }, "max_input_chars": 6500 }
+```
+
+| Provider kind | Examples | Config |
+|---|---|---|
+| CLI | Codex (`codex exec --output-schema`), Claude (`claude -p --output-format json`), others | command template, model, timeout |
+| HTTP | DeepSeek, any OpenAI-compatible endpoint | base URL, model, API key (Keychain) |
+
+Shared by every task: timeout, batching, retry with reduced context, source-text fallback, a
+10-minute pause after an auth failure, an ordered fallback list, and usage/latency in `run_log`.
+Prompts use `{{title}}`, `{{text}}`, `{{detail}}`, `{{url}}`, `{{language}}`. Tasks and providers sync;
+secrets stay in the Mac's Keychain.
 
 ### Synced tables (`bento.sqlite`)
 
@@ -219,9 +244,9 @@ with sync off.
 |---|---|---|
 | 0 | Project, packages, Cargo workspace, daemon skeleton as LaunchAgent, news tables, iCloud sync | A row Rust writes to the outbox reaches a second device through the app; first-sync time measured with a year of synthetic items |
 | 1 | RSS end to end: scheduler, task queue, built-in RSS, outbox → app; native reader (feed by day, filters, search, detail, bookmarks) | A subscribed RSS feed shows up on the Mac and on a second device; bookmarks sync |
-| 2 | Plugin host + test kit; YouTube, X, Bilibili; detail extraction; Codex CLI translation and summary; Mac settings screens | All four sources run unattended for a week with no duplicates or crashes |
-| 3 | Discord, Telegram bot, Telegram account (`grammers`) | A week with no duplicate or missed sends |
-| Later | iOS reader, read-only local JSON API, notes, Reddit / Xiaohongshu / Telegram sources | — |
+| 2 | Plugin host + test kit; X, Reddit, YouTube, Bilibili, Telegram, Xiaohongshu; detail extraction; AI service with CLI and HTTP providers and configurable steps; run options; Mac settings screens | Every source runs unattended for a week with no duplicates or crashes |
+| 3 | Discord, Telegram bot, Telegram account (`grammers`), X posting | A week with no duplicate or missed sends |
+| Later | iOS reader, read-only local JSON API, notes | — |
 
 ## Open items
 

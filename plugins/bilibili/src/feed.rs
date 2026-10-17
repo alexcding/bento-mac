@@ -163,10 +163,6 @@ fn raw_item(item: &Value) -> Option<RawItem> {
         .unwrap_or_else(|| format!("https://t.bilibili.com/{id}"));
 
     let media = media(bvid.as_deref(), major, other.cover.as_ref());
-    if body.is_empty() && title.is_none() && media.is_empty() {
-        return None; // a type this plugin cannot show; better nothing than a blank card
-    }
-
     let reference = item
         .get("orig")
         .filter(|orig| orig.is_object())
@@ -177,6 +173,9 @@ fn raw_item(item: &Value) -> Option<RawItem> {
                 item: orig,
             })
         });
+    if body.is_empty() && title.is_none() && media.is_empty() && reference.is_none() {
+        return None; // a type this plugin cannot show; better nothing than a blank card
+    }
     let published_at = author
         .get("pub_ts")
         .and_then(|v| {
@@ -426,6 +425,20 @@ mod tests {
         assert_eq!(item.title.as_deref(), Some("今晚直播"));
         assert_eq!(item.url.as_deref(), Some("https://live.bilibili.com/123"));
         assert_eq!(item.media[0].url, "https://i0.hdslb.com/bfs/live/c.jpg");
+
+        let bare_forward = json!({"id_str": "9", "modules": {"module_author": {"name": "x"},
+            "module_dynamic": {"desc": null, "major": null}},
+            "orig": {"id_str": "10", "modules": {"module_dynamic": {"desc": {"text": "原视频"}}}}});
+        assert_eq!(
+            raw_item(&bare_forward)
+                .unwrap()
+                .reference
+                .unwrap()
+                .item
+                .text,
+            "原视频",
+            "kept for its original"
+        );
 
         let unknown = json!({"id_str": "8", "modules": {"module_author": {"name": "x"},
             "module_dynamic": {"desc": null, "major": {"type": "MAJOR_TYPE_NEW_THING", "new_thing": {}}}}});

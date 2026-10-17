@@ -21,7 +21,7 @@ final class CollectorService: SourceStatusProviding {
 
   private(set) var agentStatus: SMAppService.Status
   private(set) var lastSync: (date: Date, saved: Int)?
-  private(set) var lastError: String?
+  var lastError: String?
   private(set) var statuses: [Source.ID: SourceStatus] = [:]
   private(set) var plugins: [PluginInfo] = []
   private(set) var isThisMacCollector = false
@@ -129,6 +129,11 @@ final class CollectorService: SourceStatusProviding {
   /// Retries every minute until it succeeds.
   private func claimIfUnset() async {
     while !Task.isCancelled {
+      let database = database
+      if (try? await database.read({ try Mutations.settings($0).collectorDeviceID })) != nil {
+        claimError = nil
+        return
+      }
       do {
         try await takeOver(onlyIfUnset: true)
         claimError = nil
@@ -161,7 +166,10 @@ final class CollectorService: SourceStatusProviding {
     _ = try await database.write {
       try Mutations.claimCollector($0, deviceID: device.id, deviceName: device.name, onlyIfUnset: onlyIfUnset)
     }
-    if !onlyIfUnset { UserDefaults.standard.removeObject(forKey: Self.stoppedByUserKey) }
+    if !onlyIfUnset {
+      UserDefaults.standard.removeObject(forKey: Self.stoppedByUserKey)
+      claimError = nil
+    }
     logger.info("This Mac collects now (\(ids.count) items marked seen)")
     await sync()
   }

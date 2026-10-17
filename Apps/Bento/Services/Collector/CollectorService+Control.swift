@@ -24,7 +24,12 @@ extension CollectorService: CollectorControlling {
   }
 
   func becomeCollector() async throws {
-    try await takeOver(onlyIfUnset: false)
+    do {
+      try await takeOver(onlyIfUnset: false)
+    } catch {
+      lastError = "Could not collect on this Mac: \(error.localizedDescription)"
+      throw error
+    }
   }
 
   func fetchNow(sourceID: Source.ID) async throws -> RunSummary {

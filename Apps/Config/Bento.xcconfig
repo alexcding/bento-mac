@@ -2,7 +2,7 @@
 // Local.xcconfig.template.
 
 PRODUCT_NAME = Bento
-BENTO_BUNDLE_ID = io.github.alexcding.Bento
+BENTO_BUNDLE_ID = com.alexcding.bento
 PRODUCT_BUNDLE_IDENTIFIER = $(BENTO_BUNDLE_ID)
 MACOSX_DEPLOYMENT_TARGET = 15.0
 SWIFT_VERSION = 6.0

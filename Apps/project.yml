@@ -49,12 +49,12 @@ targets:
     postCompileScripts:
       - name: Embed LaunchAgent
         outputFiles:
-          - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LaunchAgents/io.github.alexcding.bento.collector.plist
+          - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LaunchAgents/com.alexcding.bento.collector.plist
         inputFiles:
-          - $(SRCROOT)/Bento/LaunchAgents/io.github.alexcding.bento.collector.plist
+          - $(SRCROOT)/Bento/LaunchAgents/com.alexcding.bento.collector.plist
         script: |
           mkdir -p "${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}/Library/LaunchAgents"
-          cp "${SRCROOT}/Bento/LaunchAgents/io.github.alexcding.bento.collector.plist" \
+          cp "${SRCROOT}/Bento/LaunchAgents/com.alexcding.bento.collector.plist" \
             "${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}/Library/LaunchAgents/"
   # bento-collector and the bundled protocol plugins, built by cargo, in a background-only app
   # bundle (Bento.app/Contents/Helpers/BentoCollector.app). It has no Swift sources; the build

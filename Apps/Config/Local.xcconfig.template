@@ -1,11 +1,11 @@
 // Copy to Local.xcconfig (git-ignored) to sign with your team and turn on iCloud sync.
 // The container must exist in your developer account and be enabled for this bundle ID.
 
-BENTO_BUNDLE_ID = com.example.Bento
+BENTO_BUNDLE_ID = com.alexcding.bento
 DEVELOPMENT_TEAM = ABCDE12345
 CODE_SIGN_STYLE = Automatic
 CODE_SIGN_IDENTITY = Apple Development
-BENTO_ICLOUD_CONTAINER = iCloud.com.example.Bento
+BENTO_ICLOUD_CONTAINER = iCloud.com.alexcding.bento
 CODE_SIGN_ENTITLEMENTS = Bento/Bento-iCloud.entitlements
 // Lets the collector keep plugin sign-ins and destination secrets in iCloud Keychain, so any of
 // your Macs can take over collecting without signing in again.

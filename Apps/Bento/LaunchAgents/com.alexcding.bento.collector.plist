@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>io.github.alexcding.bento.collector</string>
+	<string>com.alexcding.bento.collector</string>
 	<key>BundleProgram</key>
 	<string>Contents/Helpers/BentoCollector.app/Contents/MacOS/bento-collector</string>
 	<key>ProgramArguments</key>

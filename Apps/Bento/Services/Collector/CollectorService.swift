@@ -17,7 +17,7 @@ private let logger = Logger(subsystem: "Bento", category: "Collector")
 @MainActor
 @Observable
 final class CollectorService: SourceStatusProviding {
-  static let agentLabel = "io.github.alexcding.bento.collector"
+  static let agentLabel = "com.alexcding.bento.collector"
 
   private(set) var agentStatus: SMAppService.Status
   private(set) var lastSync: (date: Date, saved: Int)?

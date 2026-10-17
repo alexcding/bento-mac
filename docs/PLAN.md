@@ -120,20 +120,29 @@ profile plus an ordered fallback list, so each task can use a different service 
 DeepSeek, summarize on Claude). Every use is a task config, not code:
 
 ```jsonc
-{ "id": "translate-zh", "name": "Translate to Chinese", "profile": "deepseek-api", "fallback": ["codex-cli"],
-  "prompt": "Translate to Simplified Chinese…\n{{title}}\n{{text}}",
-  "outputs": { "title": "translatedTitle", "text": "detailMarkdown" }, "max_input_chars": 6500 }
+{ "id": "summarize", "name": "Summarize", "profile": "claude-cli", "fallback": ["deepseek-api"],
+  "instructions": "Summarize what each item says in one or two factual sentences…",
+  "outputs": [{ "name": "summary", "target": "summary", "description": "…" }],
+  "max_input_chars": 6500, "batch_size": 4 }
 ```
 
-| Provider kind | Examples | Config |
-|---|---|---|
-| CLI | Codex (`codex exec --output-schema`), Claude (`claude -p --output-format json`), others | command template, model, timeout |
-| HTTP | DeepSeek, any OpenAI-compatible endpoint | base URL, model, API key (Keychain) |
+The engine sends the instructions plus a JSON array of items (`id`, `title`, `text`, `detail`, `url`,
+`language`) and a JSON Schema built from `outputs`; the model returns one entry per item. Output targets
+are `translated_title`, `summary`, `text` and `detail`. Sources run the presets `translate` and
+`summarize` through their switches, plus any task IDs in `ai_tasks`.
 
-Shared by every task: timeout, batching, retry with reduced context, source-text fallback, a
-10-minute pause after an auth failure, an ordered fallback list, and usage/latency in `run_log`.
-Prompts use `{{title}}`, `{{text}}`, `{{detail}}`, `{{url}}`, `{{language}}`. Tasks and providers sync;
-secrets stay in the Mac's Keychain.
+| Profile kind | Examples | How it runs |
+|---|---|---|
+| `cli` / `codex` | Codex CLI | `codex exec -s read-only --ephemeral --output-schema … -o …`, prompt on stdin |
+| `cli` / `claude` | Claude Code | `claude -p --output-format json --json-schema … --tools ""`, answer in `structured_output` |
+| `cli` / `custom` | any CLI | command with `{model}`, `{schema_file}`, `{output_file}`; answer on stdout or in the file |
+| `http` | DeepSeek, OpenRouter, local servers | OpenAI-compatible `/chat/completions`, key in the Keychain as secret `ai.<profile id>` |
+
+Shared by every task: batching by size and characters, profile fallback in order, a 10-minute pause
+after an authentication failure, one retry with detail cut to 1,500 characters, keeping the source text
+when every profile fails, and every call logged to `ai_calls` (profile, task, duration, items, error).
+Articles for `fetch_detail` sources are extracted first (Readability, then Markdown), so AI tasks can use
+them.
 
 ### Synced tables (`bento.sqlite`)
 

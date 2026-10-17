@@ -1,8 +1,9 @@
-//! Turns raw items from a source into outbox entries.
-//!
-//! Detail extraction and AI enrichment slot in here as further steps, each behind its own port.
+//! Turns raw items from a source into outbox entries, in two steps around enrichment:
+//! `prepare` (normalize and drop old or already-sent items) and `append` (compress and store).
 
-use bento_domain::{RawItem, detail};
+use std::collections::HashSet;
+
+use bento_domain::{NormalizedItem, RawItem, detail};
 use chrono::Duration;
 use uuid::Uuid;
 
@@ -18,6 +19,15 @@ pub struct IngestReport {
     pub written: usize,
 }
 
+/// New items from one fetch, ready for enrichment.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Prepared {
+    pub fetched: usize,
+    pub too_old: usize,
+    /// Never appended before, in save order (a referenced item precedes the item pointing at it).
+    pub items: Vec<NormalizedItem>,
+}
+
 pub struct Ingestor<O, C> {
     outbox: O,
     clock: C,
@@ -29,14 +39,13 @@ impl<O: Outbox, C: Clock> Ingestor<O, C> {
     }
 
     /// Normalizes, drops items published before `now - max_age` (no limit if that underflows),
-    /// and appends the rest.
-    /// Items already appended earlier are skipped by the outbox.
-    pub fn ingest(
+    /// items appended before and repeats within the fetch.
+    pub fn prepare(
         &self,
         source_id: Uuid,
         raw_items: Vec<RawItem>,
         max_age: Duration,
-    ) -> Result<IngestReport, PortError> {
+    ) -> Result<Prepared, PortError> {
         let fetched_at = self.clock.now();
         let oldest = fetched_at.checked_sub_signed(max_age);
         let fetched = raw_items.len();
@@ -48,22 +57,56 @@ impl<O: Outbox, C: Clock> Ingestor<O, C> {
             })
             .collect();
         let too_old = fetched - fresh.len();
-        let entries: Vec<OutboxEntry> = fresh
+        let normalized: Vec<NormalizedItem> = fresh
             .into_iter()
             .flat_map(|raw| raw.normalize(source_id, fetched_at))
-            .map(|normalized| OutboxEntry {
-                detail: normalized.body_markdown.as_deref().map(detail::encode),
-                item: normalized.item,
-            })
             .collect();
-        let written = if entries.is_empty() {
-            0
+        let ids: Vec<Uuid> = normalized.iter().map(|n| n.item.id).collect();
+        let unseen = if ids.is_empty() {
+            HashSet::new()
         } else {
-            self.outbox.append_new(&entries)?
+            self.outbox.unseen(&ids)?
         };
-        Ok(IngestReport {
+        let mut kept = HashSet::new();
+        let items = normalized
+            .into_iter()
+            .filter(|n| unseen.contains(&n.item.id) && kept.insert(n.item.id))
+            .collect();
+        Ok(Prepared {
             fetched,
             too_old,
+            items,
+        })
+    }
+
+    /// Compresses details and appends. Returns how many entries were new.
+    pub fn append(&self, items: Vec<NormalizedItem>) -> Result<usize, PortError> {
+        let entries: Vec<OutboxEntry> = items
+            .into_iter()
+            .map(|n| OutboxEntry {
+                detail: n.body_markdown.as_deref().map(detail::encode),
+                item: n.item,
+            })
+            .collect();
+        if entries.is_empty() {
+            Ok(0)
+        } else {
+            self.outbox.append_new(&entries)
+        }
+    }
+
+    /// `prepare` then `append`, without enrichment.
+    pub fn ingest(
+        &self,
+        source_id: Uuid,
+        raw_items: Vec<RawItem>,
+        max_age: Duration,
+    ) -> Result<IngestReport, PortError> {
+        let prepared = self.prepare(source_id, raw_items, max_age)?;
+        let written = self.append(prepared.items)?;
+        Ok(IngestReport {
+            fetched: prepared.fetched,
+            too_old: prepared.too_old,
             written,
         })
     }
@@ -72,7 +115,6 @@ impl<O: Outbox, C: Clock> Ingestor<O, C> {
 #[cfg(test)]
 pub(crate) mod tests {
     use std::cell::RefCell;
-    use std::collections::HashSet;
 
     use bento_domain::{Reference, ReferenceKind};
     use chrono::{DateTime, TimeZone, Utc};
@@ -88,6 +130,17 @@ pub(crate) mod tests {
     }
 
     impl Outbox for FakeOutbox {
+        fn unseen(&self, ids: &[Uuid]) -> Result<HashSet<Uuid>, PortError> {
+            if self.fail {
+                return Err(PortError::msg("disk full"));
+            }
+            Ok(ids
+                .iter()
+                .filter(|id| !self.seen.borrow().contains(id))
+                .copied()
+                .collect())
+        }
+
         fn append_new(&self, entries: &[OutboxEntry]) -> Result<usize, PortError> {
             if self.fail {
                 return Err(PortError::msg("disk full"));
@@ -206,18 +259,34 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn counts_only_items_not_seen_before() {
+    fn unlimited_max_age_does_not_overflow() {
+        let outbox = FakeOutbox::default();
+        let report = Ingestor::new(&outbox, FixedClock::at(9))
+            .ingest(Uuid::from_u128(1), vec![raw("a")], Duration::MAX)
+            .unwrap();
+        assert_eq!(report.written, 1);
+    }
+
+    #[test]
+    fn prepare_drops_items_already_sent_and_repeats() {
         let outbox = FakeOutbox::default();
         let ingestor = Ingestor::new(&outbox, FixedClock::at(9));
         ingestor
             .ingest(Uuid::from_u128(1), vec![raw("a")], DAY)
             .unwrap();
 
-        let report = ingestor
-            .ingest(Uuid::from_u128(1), vec![raw("a"), raw("b")], DAY)
+        let prepared = ingestor
+            .prepare(Uuid::from_u128(1), vec![raw("a"), raw("b"), raw("b")], DAY)
             .unwrap();
 
-        assert_eq!(report.written, 1);
+        assert_eq!(
+            prepared
+                .items
+                .iter()
+                .map(|n| n.item.external_id.as_str())
+                .collect::<Vec<_>>(),
+            ["b"]
+        );
     }
 
     #[test]

@@ -10,10 +10,13 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use bento_ai::AiProviders;
 use bento_app::{
-    FetcherRegistry, Ingestor, RunReport, Scheduler, SecretStore, SourceFetcher, SystemClock,
+    AiCallRecorder, DetailExtractor, Enricher, Enrichment, FetcherRegistry, Ingestor, RunReport,
+    Scheduler, SecretStore, SourceFetcher, SystemClock,
 };
 use bento_domain::{CollectorConfig, RawItem};
+use bento_extract::ArticleExtractor;
 use bento_plugin_host::PluginRegistry;
 use bento_secrets_keychain::KeychainSecrets;
 use bento_source_rss::RssFetcher;
@@ -117,18 +120,22 @@ async fn main() -> Result<()> {
 
     match command {
         Command::Run => {
+            let registry = plugins::load(&directories, &secrets);
             run(
                 &data_dir,
-                open_store(&data_dir)?,
-                plugins::load(&directories, &secrets),
+                Arc::new(open_store(&data_dir)?),
+                registry,
+                secrets,
             )
             .await
         }
         Command::RunOnce => {
+            let registry = plugins::load(&directories, &secrets);
             run_once(
                 &data_dir,
-                &open_store(&data_dir)?,
-                &plugins::load(&directories, &secrets),
+                &Arc::new(open_store(&data_dir)?),
+                &registry,
+                &secrets,
             )
             .await
         }
@@ -177,6 +184,21 @@ fn open_store(data_dir: &Path) -> Result<SqliteStore> {
     SqliteStore::open(&path).with_context(|| format!("opening {}", path.display()))
 }
 
+/// Article extraction and AI tasks, with AI calls logged to the store.
+fn enrichment(
+    store: &Arc<SqliteStore>,
+    secrets: &Arc<dyn SecretStore>,
+) -> Result<Arc<dyn Enricher>> {
+    let extractor: Arc<dyn DetailExtractor> = Arc::new(ArticleExtractor::new()?);
+    let recorder: Arc<dyn AiCallRecorder> = store.clone();
+    Ok(Arc::new(Enrichment::new(
+        Some(extractor),
+        Arc::new(AiProviders::new(secrets.clone())?),
+        recorder,
+        Arc::new(SystemClock),
+    )))
+}
+
 /// Built-in RSS plus every loaded source plugin.
 fn fetchers(registry: &PluginRegistry) -> Result<FetcherRegistry> {
     let mut fetchers = registry.fetchers();
@@ -185,9 +207,15 @@ fn fetchers(registry: &PluginRegistry) -> Result<FetcherRegistry> {
     Ok(fetchers)
 }
 
-async fn run(data_dir: &Path, store: SqliteStore, registry: PluginRegistry) -> Result<()> {
+async fn run(
+    data_dir: &Path,
+    store: Arc<SqliteStore>,
+    registry: PluginRegistry,
+    secrets: Arc<dyn SecretStore>,
+) -> Result<()> {
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "collector started");
-    let scheduler = Scheduler::new(fetchers(&registry)?, &store, &store, SystemClock);
+    let scheduler = Scheduler::new(fetchers(&registry)?, &*store, &*store, SystemClock)
+        .with_enricher(enrichment(&store, &secrets)?);
     let mut catalog_due = tokio::time::Instant::now();
     let mut config_file = ConfigFile::new(data_dir.join("collector-config.json"));
     let mut config = CollectorConfig::default();
@@ -217,12 +245,18 @@ async fn run(data_dir: &Path, store: SqliteStore, registry: PluginRegistry) -> R
     Ok(())
 }
 
-async fn run_once(data_dir: &Path, store: &SqliteStore, registry: &PluginRegistry) -> Result<()> {
+async fn run_once(
+    data_dir: &Path,
+    store: &Arc<SqliteStore>,
+    registry: &PluginRegistry,
+    secrets: &Arc<dyn SecretStore>,
+) -> Result<()> {
     let config = ConfigFile::new(data_dir.join("collector-config.json"))
         .reload_if_changed()?
         .unwrap_or_default();
     plugins::publish_catalog(registry, store).await?;
-    let reports = Scheduler::new(fetchers(registry)?, store, store, SystemClock)
+    let reports = Scheduler::new(fetchers(registry)?, &**store, &**store, SystemClock)
+        .with_enricher(enrichment(store, secrets)?)
         .run_due(&config)
         .await?;
     log_reports(&reports);
@@ -332,9 +366,14 @@ fn log_reports(reports: &[RunReport]) {
                 fetched = ingest.fetched,
                 too_old = ingest.too_old,
                 new = ingest.written,
+                articles = report.enrich.details_extracted,
+                article_failures = report.enrich.detail_failures,
                 "source fetched"
             ),
             Err(error) => tracing::warn!(source = %report.source_id, %error, "source failed"),
+        }
+        for failure in &report.enrich.ai_failures {
+            tracing::warn!(source = %report.source_id, %failure, "AI task failed; kept the source text");
         }
     }
 }

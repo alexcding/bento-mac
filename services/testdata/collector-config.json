@@ -12,7 +12,8 @@
       "enabled": true,
       "translate": true,
       "summarize": false,
-      "fetch_detail": true
+      "fetch_detail": true,
+      "ai_tasks": []
     },
     {
       "id": "0b8e4d1a-7a35-4d0b-8f2e-5c9d3e6a1b24",
@@ -24,7 +25,12 @@
       "enabled": false,
       "translate": false,
       "summarize": false,
-      "fetch_detail": false
+      "fetch_detail": false,
+      "ai_tasks": []
     }
-  ]
+  ],
+  "ai": {
+    "profiles": [],
+    "tasks": []
+  }
 }

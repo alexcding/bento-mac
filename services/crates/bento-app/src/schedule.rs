@@ -7,6 +7,7 @@ use bento_domain::{CollectorConfig, SourceConfig};
 use chrono::{DateTime, Duration, Utc};
 use uuid::Uuid;
 
+use crate::enrich::{EnrichReport, Enricher};
 use crate::ingest::{IngestReport, Ingestor};
 use crate::ports::{
     Clock, Outbox, PortError, RunRecord, SourceFetcher, SourceState, SourceStateStore,
@@ -23,6 +24,8 @@ const FIRST_RETRY: Duration = Duration::minutes(1);
 pub struct RunReport {
     pub source_id: Uuid,
     pub outcome: Result<IngestReport, PortError>,
+    /// Article and AI results; problems here never fail the run.
+    pub enrich: EnrichReport,
 }
 
 pub struct Scheduler<S, O, C> {
@@ -30,6 +33,7 @@ pub struct Scheduler<S, O, C> {
     states: S,
     outbox: O,
     clock: C,
+    enricher: Option<Arc<dyn Enricher>>,
 }
 
 impl<S: SourceStateStore, O: Outbox, C: Clock> Scheduler<S, O, C> {
@@ -39,7 +43,15 @@ impl<S: SourceStateStore, O: Outbox, C: Clock> Scheduler<S, O, C> {
             states,
             outbox,
             clock,
+            enricher: None,
         }
+    }
+
+    /// Runs article extraction and AI tasks on new items before they are stored.
+    #[must_use]
+    pub fn with_enricher(mut self, enricher: Arc<dyn Enricher>) -> Self {
+        self.enricher = Some(enricher);
+        self
     }
 
     /// Runs every enabled source whose next run is due, one at a time.
@@ -55,7 +67,8 @@ impl<S: SourceStateStore, O: Outbox, C: Clock> Scheduler<S, O, C> {
             }
             let started_at = self.clock.now();
             let timer = std::time::Instant::now();
-            let outcome = self.run(source, config).await;
+            let mut enrich = EnrichReport::default();
+            let outcome = self.run(source, config, &mut enrich).await;
             let duration_ms = u64::try_from(timer.elapsed().as_millis()).unwrap_or(u64::MAX);
             self.states
                 .record_run(&run_record(source.id, started_at, duration_ms, &outcome))?;
@@ -68,6 +81,7 @@ impl<S: SourceStateStore, O: Outbox, C: Clock> Scheduler<S, O, C> {
             reports.push(RunReport {
                 source_id: source.id,
                 outcome,
+                enrich,
             });
         }
         Ok(reports)
@@ -77,6 +91,7 @@ impl<S: SourceStateStore, O: Outbox, C: Clock> Scheduler<S, O, C> {
         &self,
         source: &SourceConfig,
         config: &CollectorConfig,
+        enrich: &mut EnrichReport,
     ) -> Result<IngestReport, PortError> {
         let fetcher = self
             .fetchers
@@ -84,7 +99,21 @@ impl<S: SourceStateStore, O: Outbox, C: Clock> Scheduler<S, O, C> {
             .ok_or_else(|| PortError::msg(format!("no plugin named '{}'", source.plugin_id)))?;
         let items = fetcher.fetch(source).await?;
         let max_age = Duration::hours(i64::from(config.max_item_age_hours));
-        Ingestor::new(&self.outbox, &self.clock).ingest(source.id, items, max_age)
+        let ingestor = Ingestor::new(&self.outbox, &self.clock);
+        let mut prepared = ingestor.prepare(source.id, items, max_age)?;
+        if let Some(enricher) = &self.enricher
+            && !prepared.items.is_empty()
+        {
+            *enrich = enricher
+                .enrich(source, &config.ai, &mut prepared.items)
+                .await;
+        }
+        let written = ingestor.append(prepared.items)?;
+        Ok(IngestReport {
+            fetched: prepared.fetched,
+            too_old: prepared.too_old,
+            written,
+        })
     }
 }
 
@@ -230,6 +259,7 @@ mod tests {
             translate: false,
             summarize: false,
             fetch_detail: false,
+            ai_tasks: Vec::new(),
         }
     }
 

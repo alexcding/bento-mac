@@ -1,0 +1,21 @@
+[package]
+name = "bento-extract"
+description = "Article text extraction for Bento: Readability, then Markdown."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+bento-app.workspace = true
+dom_smoothie.workspace = true
+htmd.workspace = true
+reqwest.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+wiremock.workspace = true
+
+[lints]
+workspace = true

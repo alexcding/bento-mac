@@ -1,7 +1,9 @@
 //! Interfaces the use cases need from the outside world.
 
+use std::collections::HashSet;
+
 use async_trait::async_trait;
-use bento_domain::{FeedItem, RawItem, SourceConfig};
+use bento_domain::{AiProfile, FeedItem, RawItem, SourceConfig};
 use chrono::{DateTime, Utc};
 use thiserror::Error;
 use uuid::Uuid;
@@ -30,6 +32,8 @@ pub struct OutboxEntry {
 }
 
 pub trait Outbox {
+    /// The subset of `ids` never appended before. Used to skip known items before any processing.
+    fn unseen(&self, ids: &[Uuid]) -> Result<HashSet<Uuid>, PortError>;
     /// Appends, atomically and in order, the entries whose item IDs were never appended before.
     /// Returns how many were appended.
     fn append_new(&self, entries: &[OutboxEntry]) -> Result<usize, PortError>;
@@ -52,6 +56,56 @@ impl Clock for SystemClock {
 /// leave it.
 pub trait SecretStore: Send + Sync {
     fn secret(&self, plugin_id: &str, key: &str) -> Result<Option<String>, PortError>;
+}
+
+/// Fetches a web page and returns its main text as Markdown, or `None` if it has none.
+#[async_trait]
+pub trait DetailExtractor: Send + Sync {
+    async fn extract(&self, url: &str) -> Result<Option<String>, PortError>;
+}
+
+/// One structured AI call: instructions, the input as JSON text, and the JSON Schema the answer
+/// must follow.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AiRequest {
+    pub instructions: String,
+    pub input: String,
+    pub schema: serde_json::Value,
+}
+
+#[derive(Debug, Error)]
+pub enum AiError {
+    /// Login, API key or permission problem. The profile is paused for a while.
+    #[error("authentication failed: {0}")]
+    Auth(String),
+    #[error("{0}")]
+    Failed(String),
+}
+
+/// Runs a request on the service a profile describes.
+#[async_trait]
+pub trait AiProvider: Send + Sync {
+    async fn complete(
+        &self,
+        profile: &AiProfile,
+        request: &AiRequest,
+    ) -> Result<serde_json::Value, AiError>;
+}
+
+/// One AI call, kept for the app's usage and latency view.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AiCall {
+    pub started_at: DateTime<Utc>,
+    pub profile_id: String,
+    pub task_id: String,
+    pub duration_ms: u64,
+    pub items: usize,
+    pub input_chars: usize,
+    pub error: Option<String>,
+}
+
+pub trait AiCallRecorder: Send + Sync {
+    fn record_ai_call(&self, call: &AiCall) -> Result<(), PortError>;
 }
 
 /// Fetches raw items for one source. One implementation per plugin.
@@ -91,6 +145,10 @@ pub trait SourceStateStore {
 }
 
 impl<T: Outbox + ?Sized> Outbox for &T {
+    fn unseen(&self, ids: &[Uuid]) -> Result<HashSet<Uuid>, PortError> {
+        (**self).unseen(ids)
+    }
+
     fn append_new(&self, entries: &[OutboxEntry]) -> Result<usize, PortError> {
         (**self).append_new(entries)
     }

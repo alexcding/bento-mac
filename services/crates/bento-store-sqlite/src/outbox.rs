@@ -1,6 +1,9 @@
+use std::collections::HashSet;
+
 use bento_app::{Outbox, OutboxEntry, PortError};
 use bento_domain::FeedItem;
 use rusqlite::params;
+use uuid::Uuid;
 
 use crate::{SqliteStore, StoreError};
 
@@ -41,6 +44,18 @@ impl SqliteStore {
         Ok(appended)
     }
 
+    fn unseen_items(&self, ids: &[Uuid]) -> Result<HashSet<Uuid>, StoreError> {
+        let connection = self.connection();
+        let mut seen = connection.prepare_cached("SELECT 1 FROM seen_items WHERE item_id = ?1")?;
+        let mut unseen = HashSet::new();
+        for id in ids {
+            if !seen.exists([id.to_string()])? {
+                unseen.insert(*id);
+            }
+        }
+        Ok(unseen)
+    }
+
     /// Rows with `seq` greater than `after`, oldest first.
     pub fn outbox_after(&self, after: i64, limit: usize) -> Result<Vec<OutboxRow>, StoreError> {
         let connection = self.connection();
@@ -70,6 +85,10 @@ impl SqliteStore {
 }
 
 impl Outbox for SqliteStore {
+    fn unseen(&self, ids: &[Uuid]) -> Result<HashSet<Uuid>, PortError> {
+        self.unseen_items(ids).map_err(PortError::new)
+    }
+
     fn append_new(&self, entries: &[OutboxEntry]) -> Result<usize, PortError> {
         self.append_new_to_outbox(entries).map_err(PortError::new)
     }
@@ -147,6 +166,18 @@ mod tests {
             .map(|r| r.item.external_id)
             .collect();
         assert_eq!(ids, ["a", "b"]);
+    }
+
+    #[test]
+    fn unseen_lists_only_ids_never_appended() {
+        let store = SqliteStore::open_in_memory().unwrap();
+        let sent = entry("a", None);
+        store.append_new(std::slice::from_ref(&sent)).unwrap();
+        let fresh = entry("b", None);
+
+        let unseen = store.unseen(&[sent.item.id, fresh.item.id]).unwrap();
+
+        assert_eq!(unseen, HashSet::from([fresh.item.id]));
     }
 
     #[test]

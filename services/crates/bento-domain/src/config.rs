@@ -4,6 +4,8 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::ai::{AiConfig, SUMMARIZE_TASK, TRANSLATE_TASK};
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CollectorConfig {
     pub version: u32,
@@ -12,6 +14,8 @@ pub struct CollectorConfig {
     pub max_item_age_hours: u32,
     #[serde(default)]
     pub sources: Vec<SourceConfig>,
+    #[serde(default)]
+    pub ai: AiConfig,
 }
 
 impl Default for CollectorConfig {
@@ -20,6 +24,7 @@ impl Default for CollectorConfig {
             version: 1,
             max_item_age_hours: default_max_item_age_hours(),
             sources: Vec::new(),
+            ai: AiConfig::default(),
         }
     }
 }
@@ -47,6 +52,32 @@ pub struct SourceConfig {
     pub summarize: bool,
     #[serde(default)]
     pub fetch_detail: bool,
+    /// AI task IDs run on this source's new items, in order, after `translate` and `summarize`.
+    #[serde(default)]
+    pub ai_tasks: Vec<String>,
+}
+
+impl SourceConfig {
+    /// Every AI task to run, in order and without repeats: the presets switched on by `translate`
+    /// and `summarize`, then `ai_tasks`.
+    #[must_use]
+    pub fn task_ids(&self) -> Vec<&str> {
+        let presets = [
+            (self.translate, TRANSLATE_TASK),
+            (self.summarize, SUMMARIZE_TASK),
+        ];
+        let mut ids: Vec<&str> = presets
+            .iter()
+            .filter(|(on, _)| *on)
+            .map(|(_, id)| *id)
+            .collect();
+        for id in &self.ai_tasks {
+            if !ids.contains(&id.as_str()) {
+                ids.push(id);
+            }
+        }
+        ids
+    }
 }
 
 #[cfg(test)]
@@ -62,6 +93,17 @@ mod tests {
         assert_eq!(config.sources.len(), 2);
         assert_eq!(config.sources[0].plugin_id, "rss");
         assert!(!config.sources[1].enabled);
+    }
+
+    #[test]
+    fn task_ids_combine_switches_and_list_without_repeats() {
+        let mut config: CollectorConfig =
+            serde_json::from_str(include_str!("../../../testdata/collector-config.json")).unwrap();
+        let source = &mut config.sources[0];
+        assert_eq!(source.task_ids(), ["translate"]);
+        source.summarize = true;
+        source.ai_tasks = vec!["summarize".into(), "keywords".into()];
+        assert_eq!(source.task_ids(), ["translate", "summarize", "keywords"]);
     }
 
     #[test]

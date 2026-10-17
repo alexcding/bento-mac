@@ -25,12 +25,15 @@ public enum CollectorConfigExporter {
         "translate": source.translate,
         "summarize": source.summarize,
         "fetch_detail": source.fetchDetail,
+        "ai_tasks": [String](),
       ]
     }
     let config: [String: Any] = [
       "version": 1,
       "max_item_age_hours": maxItemAgeHours,
       "sources": sources,
+      // AI profiles and tasks are edited in Settings (phase 2d); until then the presets apply.
+      "ai": ["profiles": [Any](), "tasks": [Any]()],
     ]
     return try JSONSerialization.data(withJSONObject: config, options: [.sortedKeys, .prettyPrinted])
   }

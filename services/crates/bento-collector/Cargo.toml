@@ -7,8 +7,10 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+bento-ai.workspace = true
 bento-app.workspace = true
 bento-domain.workspace = true
+bento-extract.workspace = true
 bento-plugin-host.workspace = true
 bento-secrets-keychain.workspace = true
 bento-source-rss.workspace = true

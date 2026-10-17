@@ -4,6 +4,7 @@
 //! layout and the JSON payload are a contract with `Packages/BentoData/Sources/BentoData/`
 //! (`Outbox.swift`, `CollectorStatus.swift`).
 
+mod ai_calls;
 mod outbox;
 mod plugins;
 mod source_state;
@@ -34,6 +35,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/002_scheduling.sql"),
     include_str!("migrations/003_run_log.sql"),
     include_str!("migrations/004_plugins.sql"),
+    include_str!("migrations/005_ai_calls.sql"),
 ];
 
 pub struct SqliteStore {
@@ -120,7 +122,7 @@ mod tests {
             .connection()
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 4);
+        assert_eq!(version, 5);
     }
 
     #[test]

@@ -9,9 +9,21 @@ let package = Package(
     .library(name: "BentoUI", targets: ["BentoUI"])
   ],
   dependencies: [
-    .package(path: "../BentoData")
+    .package(path: "../BentoData"),
+    .package(url: "https://github.com/pointfreeco/sqlite-data", from: "1.12.1"),
+    .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.9.0"),
   ],
   targets: [
-    .target(name: "BentoUI", dependencies: ["BentoData"])
+    .target(
+      name: "BentoUI",
+      dependencies: ["BentoData", .product(name: "SQLiteData", package: "sqlite-data")]
+    ),
+    .testTarget(
+      name: "BentoUITests",
+      dependencies: [
+        "BentoUI",
+        .product(name: "DependenciesTestSupport", package: "swift-dependencies"),
+      ]
+    ),
   ]
 )

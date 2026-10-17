@@ -120,6 +120,7 @@ fn raw_item(item: &Value) -> Option<RawItem> {
     let article = major.get("article").unwrap_or(&Value::Null);
     let common = major.get("common").unwrap_or(&Value::Null);
     let pgc = major.get("pgc").unwrap_or(&Value::Null);
+    let other = other_major(major);
 
     let body = [
         dynamic.pointer("/desc/text"),
@@ -128,6 +129,7 @@ fn raw_item(item: &Value) -> Option<RawItem> {
         article.get("desc"),
         common.get("desc"),
         pgc.get("desc"),
+        other.desc.as_ref(),
     ]
     .into_iter()
     .find_map(text)
@@ -139,6 +141,7 @@ fn raw_item(item: &Value) -> Option<RawItem> {
         common.get("title"),
         pgc.get("title"),
         opus.get("title"),
+        other.title.as_ref(),
     ]
     .into_iter()
     .find_map(text);
@@ -150,6 +153,7 @@ fn raw_item(item: &Value) -> Option<RawItem> {
             [
                 archive.get("jump_url"),
                 opus.get("jump_url"),
+                other.url.as_ref(),
                 item.pointer("/basic/jump_url"),
             ]
             .into_iter()
@@ -158,7 +162,10 @@ fn raw_item(item: &Value) -> Option<RawItem> {
         })
         .unwrap_or_else(|| format!("https://t.bilibili.com/{id}"));
 
-    let media = media(bvid.as_deref(), major);
+    let media = media(bvid.as_deref(), major, other.cover.as_ref());
+    if body.is_empty() && title.is_none() && media.is_empty() {
+        return None; // a type this plugin cannot show; better nothing than a blank card
+    }
 
     let reference = item
         .get("orig")
@@ -201,8 +208,40 @@ fn raw_item(item: &Value) -> Option<RawItem> {
     })
 }
 
+/// Title, description, cover and link of the majors without their own handling: live streams
+/// (`live_rcmd` carries its card as a JSON string), live replays, music and collections.
+#[derive(Default)]
+struct OtherMajor {
+    title: Option<Value>,
+    desc: Option<Value>,
+    cover: Option<Value>,
+    url: Option<Value>,
+}
+
+fn other_major(major: &Value) -> OtherMajor {
+    let live_rcmd = major
+        .pointer("/live_rcmd/content")
+        .and_then(Value::as_str)
+        .and_then(|s| serde_json::from_str::<Value>(s).ok())
+        .and_then(|content| content.get("live_play_info").cloned());
+    let card = live_rcmd.or_else(|| {
+        ["live", "music", "ugc_season", "courses"]
+            .iter()
+            .find_map(|key| major.get(*key).filter(|v| v.is_object()).cloned())
+    });
+    let Some(card) = card else {
+        return OtherMajor::default();
+    };
+    OtherMajor {
+        title: card.get("title").cloned(),
+        desc: card.get("desc").or_else(|| card.get("label")).cloned(),
+        cover: card.get("cover").cloned(),
+        url: card.get("jump_url").or_else(|| card.get("link")).cloned(),
+    }
+}
+
 /// The video (with cover, duration and embed) for videos, else up to four cover or post images.
-fn media(bvid: Option<&str>, major: &Value) -> Vec<Media> {
+fn media(bvid: Option<&str>, major: &Value, other_cover: Option<&Value>) -> Vec<Media> {
     let field = |key: &str| major.get(key).unwrap_or(&Value::Null);
     let (archive, opus) = (field("archive"), field("opus"));
     let mut media = Vec::new();
@@ -223,6 +262,7 @@ fn media(bvid: Option<&str>, major: &Value) -> Vec<Media> {
             field("article").get("cover"),
             field("common").get("cover"),
             field("pgc").get("cover"),
+            other_cover,
         ]
         .into_iter()
         .filter_map(text);
@@ -372,6 +412,24 @@ mod tests {
         let orig = forward.reference.as_ref().unwrap();
         assert_eq!(orig.kind, ReferenceKind::Repost);
         assert_eq!(orig.item.text, "原始动态内容");
+    }
+
+    #[test]
+    fn maps_live_streams_and_drops_types_it_cannot_show() {
+        let live = json!({"id_str": "7", "modules": {
+        "module_author": {"name": "主播", "pub_ts": 1_792_141_200},
+        "module_dynamic": {"desc": null, "major": {"type": "MAJOR_TYPE_LIVE_RCMD", "live_rcmd": {
+            "content": json!({"live_play_info": {"title": "今晚直播", "cover": "//i0.hdslb.com/bfs/live/c.jpg",
+                                                  "link": "//live.bilibili.com/123"}}).to_string()
+        }}}}});
+        let item = raw_item(&live).unwrap();
+        assert_eq!(item.title.as_deref(), Some("今晚直播"));
+        assert_eq!(item.url.as_deref(), Some("https://live.bilibili.com/123"));
+        assert_eq!(item.media[0].url, "https://i0.hdslb.com/bfs/live/c.jpg");
+
+        let unknown = json!({"id_str": "8", "modules": {"module_author": {"name": "x"},
+            "module_dynamic": {"desc": null, "major": {"type": "MAJOR_TYPE_NEW_THING", "new_thing": {}}}}});
+        assert!(raw_item(&unknown).is_none());
     }
 
     #[test]

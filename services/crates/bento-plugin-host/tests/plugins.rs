@@ -570,3 +570,27 @@ async fn protocol_auth_steps_round_trip() {
     );
     assert_eq!(step.prompt.unwrap().qr.as_deref(), Some("https://q"));
 }
+
+#[tokio::test]
+async fn protocol_oversized_response_fails_fast() {
+    let (_dir, registry) = protocol_plugin("source/fetch", "x");
+    let plugin = registry.plugin("proto").unwrap();
+    let script = plugin.directory.join("bin/proto-plugin");
+    std::fs::write(
+        &script,
+        "#!/bin/sh\ncat >/dev/null\nexec yes '{\"pad\":1}'\n",
+    )
+    .unwrap();
+    let started = std::time::Instant::now();
+
+    let error = registry.fetchers()["proto"]
+        .fetch(&proto_source())
+        .await
+        .unwrap_err();
+
+    assert!(error.to_string().contains("larger than"), "{error}");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(8),
+        "not the 10 s timeout"
+    );
+}

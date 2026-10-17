@@ -174,15 +174,21 @@ impl ProtocolPlugin {
             drop(stdin);
             let mut out = Vec::new();
             (&mut stdout)
-                .take(MAX_RESPONSE_BYTES)
+                .take(MAX_RESPONSE_BYTES + 1)
                 .read_to_end(&mut out)
                 .await?;
+            if out.len() as u64 > MAX_RESPONSE_BYTES {
+                return Ok(None); // too large; the child is killed when dropped
+            }
             child.wait().await?;
-            Ok::<_, std::io::Error>(out)
+            Ok::<_, std::io::Error>(Some(out))
         };
         let out = tokio::time::timeout(Duration::from_secs(self.timeout_seconds), exchange)
             .await
-            .map_err(|_| ProtocolError::Timeout(self.timeout_seconds))??;
+            .map_err(|_| ProtocolError::Timeout(self.timeout_seconds))??
+            .ok_or_else(|| {
+                ProtocolError::Invalid(format!("response larger than {MAX_RESPONSE_BYTES} bytes"))
+            })?;
         let response: Value =
             serde_json::from_slice(&out).map_err(|e| ProtocolError::Invalid(e.to_string()))?;
         if let Some(error) = response.get("error") {

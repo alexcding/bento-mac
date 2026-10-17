@@ -145,14 +145,19 @@ fn raw_item(message: &ElementRef) -> Option<RawItem> {
             });
         }
     }
-    if let Some(thumb) = first("i.tgme_widget_message_video_thumb") {
+    for player in message.select(&selector("a.tgme_widget_message_video_player")) {
+        let inside = |css: &str| player.select(&selector(css)).next();
         media.push(Media {
             kind: MediaKind::Video,
-            url: url.clone(),
+            url: player
+                .value()
+                .attr("href")
+                .map_or_else(|| url.clone(), str::to_owned),
             width: None,
             height: None,
-            thumbnail_url: background_url(thumb.value().attr("style")),
-            duration: first("time.message_video_duration")
+            thumbnail_url: inside("i.tgme_widget_message_video_thumb")
+                .and_then(|t| background_url(t.value().attr("style"))),
+            duration: inside("time.message_video_duration")
                 .and_then(|t| duration(&t.text().collect::<String>())),
             embed_url: None,
         });
@@ -280,6 +285,27 @@ mod tests {
         assert_eq!(photo.media[0].kind, MediaKind::Image);
         assert!(photo.media[0].url.starts_with("https://cdn"));
         assert!(items[2].media.is_empty());
+    }
+
+    #[test]
+    fn keeps_every_video_of_an_album() {
+        let player = |n: u32| {
+            format!(
+                r#"<a class="tgme_widget_message_video_player" href="https://t.me/c/9?single&v={n}">
+                   <i class="tgme_widget_message_video_thumb" style="background-image:url('https://cdn.example/{n}.jpg')"></i>
+                   <time class="message_video_duration">0:0{n}</time></a>"#
+            )
+        };
+        let page = format!(
+            r#"<section class="tgme_channel_history"><div class="tgme_widget_message" data-post="c/9">{}{}</div></section>"#,
+            player(1),
+            player(2)
+        );
+
+        let items = parse(&page);
+
+        let durations: Vec<_> = items[0].media.iter().map(|m| m.duration).collect();
+        assert_eq!(durations, [Some(1.0), Some(2.0)]);
     }
 
     #[test]

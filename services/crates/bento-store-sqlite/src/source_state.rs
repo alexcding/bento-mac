@@ -1,4 +1,4 @@
-use bento_app::{PortError, SourceState, SourceStateStore};
+use bento_app::{PortError, RunRecord, SourceState, SourceStateStore};
 use chrono::{DateTime, Utc};
 use rusqlite::{OptionalExtension, params};
 use uuid::Uuid;
@@ -52,6 +52,34 @@ impl SqliteStore {
     }
 }
 
+/// Rows kept in `run_log`.
+const RUN_LOG_LIMIT: i64 = 2_000;
+
+impl SqliteStore {
+    fn insert_run(&self, run: &RunRecord) -> Result<(), StoreError> {
+        let connection = self.connection();
+        connection
+            .prepare_cached(
+                "INSERT INTO run_log
+                   (source_id, started_at, duration_ms, fetched, too_old, new_items, error)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            )?
+            .execute(params![
+                run.source_id.to_string(),
+                run.started_at.timestamp_millis(),
+                i64::try_from(run.duration_ms).unwrap_or(i64::MAX),
+                i64::try_from(run.fetched).unwrap_or(i64::MAX),
+                i64::try_from(run.too_old).unwrap_or(i64::MAX),
+                i64::try_from(run.new_items).unwrap_or(i64::MAX),
+                run.error,
+            ])?;
+        connection
+            .prepare_cached("DELETE FROM run_log WHERE id <= (SELECT MAX(id) FROM run_log) - ?1")?
+            .execute([RUN_LOG_LIMIT])?;
+        Ok(())
+    }
+}
+
 fn from_millis(millis: i64) -> DateTime<Utc> {
     DateTime::from_timestamp_millis(millis).unwrap_or_default()
 }
@@ -63,6 +91,10 @@ impl SourceStateStore for SqliteStore {
 
     fn save_source_state(&self, state: &SourceState) -> Result<(), PortError> {
         self.store_source_state(state).map_err(PortError::new)
+    }
+
+    fn record_run(&self, run: &RunRecord) -> Result<(), PortError> {
+        self.insert_run(run).map_err(PortError::new)
     }
 }
 
@@ -99,5 +131,32 @@ mod tests {
             store.source_state(Uuid::from_u128(1)).unwrap(),
             Some(state(0, None))
         );
+    }
+
+    #[test]
+    fn records_runs_and_keeps_only_the_newest() {
+        let store = SqliteStore::open_in_memory().unwrap();
+        let run = |n: i64| RunRecord {
+            source_id: Uuid::from_u128(1),
+            started_at: DateTime::from_timestamp_millis(n).unwrap(),
+            duration_ms: 120,
+            fetched: 20,
+            too_old: 1,
+            new_items: 3,
+            error: None,
+        };
+        for n in 0..(RUN_LOG_LIMIT + 5) {
+            store.record_run(&run(n)).unwrap();
+        }
+
+        let (count, oldest): (i64, i64) = store
+            .connection()
+            .query_row("SELECT COUNT(*), MIN(started_at) FROM run_log", [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .unwrap();
+
+        assert_eq!(count, RUN_LOG_LIMIT);
+        assert_eq!(oldest, 5);
     }
 }

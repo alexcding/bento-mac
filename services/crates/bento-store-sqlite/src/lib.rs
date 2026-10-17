@@ -30,6 +30,7 @@ pub enum StoreError {
 const MIGRATIONS: &[&str] = &[
     include_str!("migrations/001_outbox.sql"),
     include_str!("migrations/002_scheduling.sql"),
+    include_str!("migrations/003_run_log.sql"),
 ];
 
 pub struct SqliteStore {
@@ -116,7 +117,7 @@ mod tests {
             .connection()
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
     }
 
     #[test]

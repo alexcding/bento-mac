@@ -76,6 +76,44 @@ public nonisolated struct FeedItem: Hashable, Identifiable, Sendable {
   public var isPublishedAtEstimated = false
   public var language: String?
   public var fetchedAt: Date
+
+  public init(
+    id: UUID,
+    sourceID: UUID,
+    externalID: String,
+    url: String? = nil,
+    title: String? = nil,
+    text: String = "",
+    translatedTitle: String? = nil,
+    summary: String? = nil,
+    authorName: String? = nil,
+    authorHandle: String? = nil,
+    authorAvatarURL: String? = nil,
+    media: [Media] = [],
+    referenceItemID: UUID? = nil,
+    publishedAt: Date,
+    isPublishedAtEstimated: Bool = false,
+    language: String? = nil,
+    fetchedAt: Date
+  ) {
+    self.id = id
+    self.sourceID = sourceID
+    self.externalID = externalID
+    self.url = url
+    self.title = title
+    self.text = text
+    self.translatedTitle = translatedTitle
+    self.summary = summary
+    self.authorName = authorName
+    self.authorHandle = authorHandle
+    self.authorAvatarURL = authorAvatarURL
+    self.media = media
+    self.referenceItemID = referenceItemID
+    self.publishedAt = publishedAt
+    self.isPublishedAtEstimated = isPublishedAtEstimated
+    self.language = language
+    self.fetchedAt = fetchedAt
+  }
 }
 
 /// Kept apart from `FeedItem` so feed queries never load the blob.
@@ -86,6 +124,11 @@ public nonisolated struct FeedItemDetail: Hashable, Identifiable, Sendable {
   /// `DetailCodec` blob.
   public var markdown: Data
   public var id: FeedItem.ID { feedItemID }
+
+  public init(feedItemID: FeedItem.ID, markdown: Data) {
+    self.feedItemID = feedItemID
+    self.markdown = markdown
+  }
 }
 
 /// Keyed by item, so an item is bookmarked at most once without a UNIQUE constraint.
@@ -107,12 +150,18 @@ public nonisolated struct ReadState: Hashable, Identifiable, Sendable {
 
 // Local-only tables (never passed to the sync engine).
 
-/// Last outbox `seq` saved, per collector database instance.
+/// Last outbox `seq` the Mac app saved, per collector database instance. Mac only in practice;
+/// the table exists everywhere so the schema is identical on every device.
 @Table("outboxCursors")
-nonisolated struct OutboxCursor: Hashable, Sendable {
+public nonisolated struct OutboxCursor: Hashable, Sendable {
   @Column(primaryKey: true)
-  let instanceID: String
-  var seq: Int
+  public let instanceID: String
+  public var seq: Int
+
+  public init(instanceID: String, seq: Int) {
+    self.instanceID = instanceID
+    self.seq = seq
+  }
 }
 
 // Memberwise initializers are internal; these are the ones other modules need.

@@ -6,7 +6,9 @@ let package = Package(
   name: "BentoData",
   platforms: [.macOS(.v15), .iOS(.v18)],
   products: [
-    .library(name: "BentoData", targets: ["BentoData"])
+    .library(name: "BentoData", targets: ["BentoData"]),
+    // macOS only: talks to the bento-collector daemon. The iOS app does not link it.
+    .library(name: "BentoCollectorClient", targets: ["BentoCollectorClient"]),
   ],
   dependencies: [
     .package(url: "https://github.com/pointfreeco/sqlite-data", from: "1.12.1"),
@@ -20,9 +22,11 @@ let package = Package(
         .product(name: "SQLiteData", package: "sqlite-data"),
       ]
     ),
-    .testTarget(
-      name: "BentoDataTests",
-      dependencies: ["BentoData"]
+    .target(
+      name: "BentoCollectorClient",
+      dependencies: ["BentoData", .product(name: "SQLiteData", package: "sqlite-data")]
     ),
+    .testTarget(name: "BentoDataTests", dependencies: ["BentoData"]),
+    .testTarget(name: "BentoCollectorClientTests", dependencies: ["BentoCollectorClient"]),
   ]
 )

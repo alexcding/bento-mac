@@ -2,6 +2,7 @@ import Foundation
 import SQLiteData
 import Testing
 
+@testable import BentoCollectorClient
 @testable import BentoData
 
 @Suite struct OutboxIngestorTests {

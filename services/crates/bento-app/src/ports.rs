@@ -66,9 +66,22 @@ pub struct SourceState {
     pub last_new_items: usize,
 }
 
+/// One source run, kept for the app's run history and performance view.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RunRecord {
+    pub source_id: Uuid,
+    pub started_at: DateTime<Utc>,
+    pub duration_ms: u64,
+    pub fetched: usize,
+    pub too_old: usize,
+    pub new_items: usize,
+    pub error: Option<String>,
+}
+
 pub trait SourceStateStore {
     fn source_state(&self, source_id: Uuid) -> Result<Option<SourceState>, PortError>;
     fn save_source_state(&self, state: &SourceState) -> Result<(), PortError>;
+    fn record_run(&self, run: &RunRecord) -> Result<(), PortError>;
 }
 
 impl<T: Outbox + ?Sized> Outbox for &T {
@@ -90,5 +103,9 @@ impl<T: SourceStateStore + ?Sized> SourceStateStore for &T {
 
     fn save_source_state(&self, state: &SourceState) -> Result<(), PortError> {
         (**self).save_source_state(state)
+    }
+
+    fn record_run(&self, run: &RunRecord) -> Result<(), PortError> {
+        (**self).record_run(run)
     }
 }

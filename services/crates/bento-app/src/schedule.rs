@@ -8,7 +8,9 @@ use chrono::{DateTime, Duration, Utc};
 use uuid::Uuid;
 
 use crate::ingest::{IngestReport, Ingestor};
-use crate::ports::{Clock, Outbox, PortError, SourceFetcher, SourceState, SourceStateStore};
+use crate::ports::{
+    Clock, Outbox, PortError, RunRecord, SourceFetcher, SourceState, SourceStateStore,
+};
 
 /// Fetchers keyed by plugin ID.
 pub type FetcherRegistry = HashMap<String, Arc<dyn SourceFetcher>>;
@@ -51,7 +53,12 @@ impl<S: SourceStateStore, O: Outbox, C: Clock> Scheduler<S, O, C> {
             {
                 continue;
             }
+            let started_at = self.clock.now();
+            let timer = std::time::Instant::now();
             let outcome = self.run(source, config).await;
+            let duration_ms = u64::try_from(timer.elapsed().as_millis()).unwrap_or(u64::MAX);
+            self.states
+                .record_run(&run_record(source.id, started_at, duration_ms, &outcome))?;
             self.states.save_source_state(&next_state(
                 source,
                 state,
@@ -78,6 +85,27 @@ impl<S: SourceStateStore, O: Outbox, C: Clock> Scheduler<S, O, C> {
         let items = fetcher.fetch(source).await?;
         let max_age = Duration::hours(i64::from(config.max_item_age_hours));
         Ingestor::new(&self.outbox, &self.clock).ingest(source.id, items, max_age)
+    }
+}
+
+fn run_record(
+    source_id: Uuid,
+    started_at: DateTime<Utc>,
+    duration_ms: u64,
+    outcome: &Result<IngestReport, PortError>,
+) -> RunRecord {
+    let (fetched, too_old, new_items, error) = match outcome {
+        Ok(report) => (report.fetched, report.too_old, report.written, None),
+        Err(error) => (0, 0, 0, Some(error.to_string())),
+    };
+    RunRecord {
+        source_id,
+        started_at,
+        duration_ms,
+        fetched,
+        too_old,
+        new_items,
+        error,
     }
 }
 
@@ -125,7 +153,7 @@ mod tests {
     use crate::ingest::tests::{FakeOutbox, FixedClock};
 
     #[derive(Default)]
-    struct FakeStates(RefCell<HashMap<Uuid, SourceState>>);
+    struct FakeStates(RefCell<HashMap<Uuid, SourceState>>, RefCell<Vec<RunRecord>>);
 
     impl SourceStateStore for FakeStates {
         fn source_state(&self, id: Uuid) -> Result<Option<SourceState>, PortError> {
@@ -133,6 +161,10 @@ mod tests {
         }
         fn save_source_state(&self, state: &SourceState) -> Result<(), PortError> {
             self.0.borrow_mut().insert(state.source_id, state.clone());
+            Ok(())
+        }
+        fn record_run(&self, run: &RunRecord) -> Result<(), PortError> {
+            self.1.borrow_mut().push(run.clone());
             Ok(())
         }
     }
@@ -215,6 +247,8 @@ mod tests {
 
         let first = block_on(scheduler.run_due(&cfg)).unwrap();
         assert_eq!(first[0].outcome.as_ref().unwrap().written, 2);
+        let run = states.1.borrow()[0].clone();
+        assert_eq!((run.fetched, run.new_items, run.error), (2, 2, None));
 
         *clock.0.borrow_mut() += Duration::minutes(29);
         assert!(block_on(scheduler.run_due(&cfg)).unwrap().is_empty());
@@ -269,6 +303,13 @@ mod tests {
         let state = states.source_state(Uuid::from_u128(1)).unwrap().unwrap();
         assert_eq!(state.consecutive_failures, 7);
         assert_eq!(state.last_error.as_deref(), Some("timeout"));
+        let runs = states.1.borrow();
+        assert_eq!(runs.len(), 7);
+        assert_eq!(runs[0].error.as_deref(), Some("timeout"));
+        assert_eq!(
+            runs[1].started_at - runs[0].started_at,
+            Duration::minutes(1)
+        );
     }
 
     #[test]

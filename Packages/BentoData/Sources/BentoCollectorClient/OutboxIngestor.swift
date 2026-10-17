@@ -1,3 +1,4 @@
+import BentoData
 import Foundation
 import SQLiteData
 
@@ -41,11 +42,9 @@ public struct OutboxIngestor: Sendable {
       }
       try database.write { db in
         for entry in entries {
-          try FeedItem.upsert { FeedItem.Draft(entry.item) }.execute(db)
+          try FeedItem.upsert { entry.item }.execute(db)
           if let detail = entry.detail {
-            try FeedItemDetail.upsert {
-              FeedItemDetail.Draft(feedItemID: entry.item.id, markdown: detail)
-            }
+            try FeedItemDetail.upsert { FeedItemDetail(feedItemID: entry.item.id, markdown: detail) }
             .execute(db)
           }
         }

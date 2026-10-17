@@ -1,10 +1,10 @@
 {
   "items": [
     "$.data.children[*].data",
-    "$.posts[*]",
+    "$.posts",
     "$.post",
-    "$.data[*]",
-    "$.items[*]",
+    "$.data",
+    "$.items",
     "$"
   ],
   "external_id": [

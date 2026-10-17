@@ -1,0 +1,17 @@
+{
+  "data": {
+    "id": "p1",
+    "title": "Crosspost",
+    "permalink": "/r/a/comments/p1/x/",
+    "author": "alice",
+    "created_utc": 1792141200,
+    "crosspost_parent_list": [
+      {
+        "id": "p0",
+        "title": "Original",
+        "permalink": "/r/b/comments/p0/y/",
+        "author": "bob"
+      }
+    ]
+  }
+}

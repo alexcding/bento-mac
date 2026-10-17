@@ -34,6 +34,8 @@ pub enum FetchError {
         program: String,
         source: std::io::Error,
     },
+    #[error("`{program}` printed more than {limit} bytes; lower the source's limit")]
+    TooLarge { program: String, limit: usize },
     #[error("`{program}` timed out after {seconds} s")]
     Timeout { program: String, seconds: u64 },
     #[error("`{program}` exited with {status}: {stderr}")]
@@ -134,9 +136,9 @@ impl CliSourceFetcher {
         Ok(env)
     }
 
-    /// Runs the command and returns its stdout. Reading stops at `MAX_OUTPUT_BYTES` (the child is
-    /// killed and what was read is used) or at the timeout (the child is killed; the output read so
-    /// far is used only if the plugin allows partial output).
+    /// Runs the command and returns its stdout. Reading stops at `MAX_OUTPUT_BYTES` or at the
+    /// timeout; either way the child is killed, and the output read so far is used only if the
+    /// plugin allows partial output (otherwise it is an error).
     async fn run(&self, argv: &[String], env: Vec<(String, String)>) -> Result<String, FetchError> {
         let program = argv[0].clone();
         let mut child = Command::new(&program)
@@ -206,6 +208,12 @@ impl CliSourceFetcher {
         match (ended, status) {
             (Ended::Timeout, _) if !partial_ok => {
                 return Err(FetchError::Timeout { program, seconds });
+            }
+            (Ended::Truncated, _) if !partial_ok => {
+                return Err(FetchError::TooLarge {
+                    program,
+                    limit: MAX_OUTPUT_BYTES,
+                });
             }
             (_, Some(status)) if !status.success() && !partial_ok => {
                 let stderr = String::from_utf8_lossy(&err);

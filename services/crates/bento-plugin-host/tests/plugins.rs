@@ -146,6 +146,44 @@ fn x_maps_posts_media_and_quotes() {
     );
 }
 
+/// A single post wrapped in `data` (the single-post route) is that post, with its quote as a
+/// reference; nested objects never become items of their own.
+#[test]
+fn x_single_post_envelope_keeps_the_main_post() {
+    let r = registry();
+    let items = r
+        .plugin("x")
+        .unwrap()
+        .fetcher
+        .as_ref()
+        .unwrap()
+        .map_output(&fixture("x", "single.json"));
+
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].external_id, "100");
+    assert_eq!(items[0].reference.as_ref().unwrap().item.external_id, "50");
+}
+
+#[test]
+fn reddit_crosspost_is_one_item() {
+    let r = registry();
+    let items = r
+        .plugin("reddit")
+        .unwrap()
+        .fetcher
+        .as_ref()
+        .unwrap()
+        .map_output(&fixture("reddit", "crosspost.json"));
+
+    assert_eq!(
+        items
+            .iter()
+            .map(|i| i.external_id.as_str())
+            .collect::<Vec<_>>(),
+        ["p1"]
+    );
+}
+
 #[test]
 fn youtube_routes_and_maps() {
     let r = registry();
@@ -352,23 +390,31 @@ fn shell_plugin(
     (dir, registry, source)
 }
 
-/// A command that prints more than the output limit is killed and its output still used.
+/// A command that prints more than the output limit is killed; its output is kept only when the
+/// plugin allows partial output, and either way the fetch stops at the limit, not the timeout.
 #[tokio::test]
 async fn oversized_output_is_cut_not_timed_out() {
-    let (_dir, registry, source) = shell_plugin(
-        "big",
-        r#"echo '{"id":"1","url":"https://e.com/1"}'; exec yes '{"pad":1}'"#,
-        &serde_json::json!({"timeout_seconds": 30}),
-    );
-    let started = std::time::Instant::now();
+    let script = r#"echo '{"id":"1","url":"https://e.com/1"}'; exec yes '{"pad":1}'"#;
+    for (partial, expect_items) in [(true, true), (false, false)] {
+        let (_dir, registry, source) = shell_plugin(
+            "big",
+            script,
+            &serde_json::json!({"timeout_seconds": 30, "partial_output_ok": partial}),
+        );
+        let started = std::time::Instant::now();
 
-    let items = registry.fetchers()["big"].fetch(&source).await.unwrap();
+        let result = registry.fetchers()["big"].fetch(&source).await;
 
-    assert_eq!(items.len(), 1);
-    assert!(
-        started.elapsed() < std::time::Duration::from_secs(15),
-        "stopped at the limit, not the timeout"
-    );
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(15),
+            "stopped at the limit"
+        );
+        if expect_items {
+            assert_eq!(result.unwrap().len(), 1);
+        } else {
+            assert!(result.unwrap_err().to_string().contains("more than"));
+        }
+    }
 }
 
 /// On timeout, a plugin that allows partial output keeps what was printed.

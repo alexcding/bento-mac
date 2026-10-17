@@ -1,10 +1,9 @@
 {
   "items": [
-    "$.data[*]",
     "$.data",
-    "$.tweets[*]",
-    "$.items[*]",
-    "$.results[*]",
+    "$.tweets",
+    "$.items",
+    "$.results",
     "$"
   ],
   "external_id": [

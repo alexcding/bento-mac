@@ -320,27 +320,6 @@ struct DestinationSettingsTests {
     #expect(collector.calls.isEmpty && store.calls == ["addDestination(x,X (as you),-)"])
   }
 
-  @Test func offersOnlyReadyPluginsAsSources() async {
-    let x = plugin(
-      "x",
-      manifest: #"{"id":"x","name":"X","capabilities":["source"],"source":{},"auth":{"kind":"secrets","fields":[{"key":"auth_token","label":"a"},{"key":"ct0","label":"c"}]}}"#
-    )
-    let youtube = plugin("youtube", manifest: #"{"id":"youtube","capabilities":["source"],"source":{}}"#)
-    let collector = FakeCollector(plugins: [x, youtube])
-    let model = model(collector)
-    model.newSourcePluginID = "x"
-
-    await model.refreshSignIns()
-
-    #expect(model.newSourcePluginID == "youtube", "X is not offered, so it is not left selected")
-    #expect(model.availablePlugins.map(\.id) == ["youtube"], "X still misses ct0")
-    #expect(model.pluginsNeedingSetup.map(\.id) == ["x"])
-
-    collector.isThisMacCollector = false
-    #expect(model.availablePlugins.map(\.id) == ["x", "youtube"], "another Mac cannot tell what the collector has")
-    #expect(model.pluginsNeedingSetup.isEmpty)
-  }
-
   @Test func onlyTheCollectorMacSetsUpDestinations() async {
     let collector = FakeCollector(plugins: [])
     collector.isThisMacCollector = false
@@ -353,5 +332,78 @@ struct DestinationSettingsTests {
 
     collector.secretsSynced = true
     #expect(!model.canManageDestinations, "still only on the collector: iCloud Keychain may be off")
+  }
+}
+
+@MainActor
+@Suite(.dependency(\.defaultDatabase, try makeDatabase()))
+struct AddSourceTests {
+  let store = FakeLibraryStore()
+  let x = plugin(
+    "x",
+    manifest: #"{"id":"x","capabilities":["source"],"source":{"default_interval_minutes":15},"auth":{"kind":"secrets","fields":[{"key":"auth_token","label":"a"},{"key":"ct0","label":"c"}]}}"#,
+    requirements: #"[{"name":"twitter-cli","installed":true}]"#
+  )
+  let youtube = plugin(
+    "youtube", manifest: #"{"id":"youtube","capabilities":["source"],"source":{}}"#,
+    requirements: #"[{"name":"yt-dlp","installed":false,"install":"brew install yt-dlp"}]"#
+  )
+
+  func model(_ collector: FakeCollector) -> AddSourceViewModel {
+    AddSourceViewModel(channelID: UUID(), store: store, collector: collector)
+  }
+
+  @Test func listsEveryPluginAndAsksForWhatIsMissing() async {
+    let collector = FakeCollector(plugins: [x, youtube])
+    let model = model(collector)
+    await model.load()
+
+    #expect(model.plugins.map(\.id) == ["x", "youtube"])
+    #expect(model.setup(for: x).needsSignIn, "ct0 is missing")
+    #expect(model.setup(for: youtube).missingPrograms.map(\.name) == ["yt-dlp"])
+
+    model.choose(x)
+    #expect(model.step == .setup(pluginID: "x"))
+    model.secretValues["ct0"] = " c0ffee "
+    await model.saveSecrets()
+
+    #expect(collector.calls == ["set(x.ct0)"])
+    #expect(model.step == .details(pluginID: "x"), "set up, so it moves on to the query")
+  }
+
+  @Test func aReadyPluginGoesStraightToTheQueryAndAddsWithItsInterval() async {
+    let collector = FakeCollector(plugins: [x, youtube])
+    collector.status = ["auth_token": true, "ct0": true]
+    let model = model(collector)
+    await model.load()
+
+    model.choose(x)
+    #expect(model.step == .details(pluginID: "x"))
+    model.query = "@bento"
+    model.add()
+
+    #expect(store.calls == ["addSource(x,@bento,false)"])
+  }
+
+  @Test func anotherMacSkipsTheSetup() async {
+    let collector = FakeCollector(plugins: [x, youtube])
+    collector.isThisMacCollector = false
+    let model = model(collector)
+    await model.load()
+
+    model.choose(youtube)
+
+    #expect(model.step == .details(pluginID: "youtube"), "only the collector can tell what is missing")
+  }
+
+  @Test func checkingAgainReloadsThePlugins() async {
+    let collector = FakeCollector(plugins: [youtube])
+    let model = model(collector)
+    model.choose(youtube)
+
+    await model.checkAgain()
+
+    #expect(collector.calls == ["refreshPlugins"])
+    #expect(model.step == .setup(pluginID: "youtube"), "yt-dlp is still missing")
   }
 }

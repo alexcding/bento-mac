@@ -25,7 +25,7 @@ struct ChannelSettingsView: View {
               delete: { model.delete(source) }
             )
           }
-          addSourceRow
+          Button("Add Source…", systemImage: "plus") { model.showAddSource() }
         }
         if model.collector != nil {
           destinationsSection
@@ -41,13 +41,10 @@ struct ChannelSettingsView: View {
     }
     .frame(minWidth: 520, minHeight: 440)
     .task { await model.load() }
-    .onChange(of: model.pluginIDs) { Task { await model.refreshSignIns() } }
-    .onReceive(NotificationCenter.default.publisher(for: .bentoSignInsChanged)) { _ in
-      Task { await model.refreshSignIns() }
-    }
     .sheet(item: $model.sourceEditor) { editor in
       SourceEditorView(model: editor)
     }
+    .sheet(item: $model.addSource) { AddSourceView(model: $0) }
   }
 
   private var destinationsSection: some View {
@@ -98,37 +95,6 @@ struct ChannelSettingsView: View {
         Button("Add") { Task { await model.addDestination() } }
           .disabled(!model.canAddDestination)
       }
-    }
-  }
-
-  private var addSourceRow: some View {
-    VStack(alignment: .leading) {
-      addSourceFields
-      Toggle("Skip posts that already exist", isOn: $model.newSourceSkipsBacklog)
-        .font(.caption)
-      if !model.pluginsNeedingSetup.isEmpty {
-        Text(
-          "\(model.pluginsNeedingSetup.map(\.name).formatted()) appear here once set up in Settings → Plugins."
-        )
-        .font(.caption)
-        .foregroundStyle(.secondary)
-      }
-    }
-  }
-
-  private var addSourceFields: some View {
-    HStack {
-      Picker("Type", selection: $model.newSourcePluginID) {
-        ForEach(model.availablePlugins) { plugin in
-          Text(plugin.name).tag(plugin.id)
-        }
-      }
-      .labelsHidden()
-      .fixedSize()
-      TextField(model.newSourcePlugin?.queryHint ?? "Query", text: $model.newSourceQuery)
-        .onSubmit { model.addSource() }
-      Button("Add") { model.addSource() }
-        .disabled(!model.canAddSource)
     }
   }
 }

@@ -23,6 +23,11 @@ public protocol ChannelSettingsFeatureFactory {
 }
 
 @MainActor
+public protocol AddSourceFeatureFactory {
+  func makeAddSource(channelID: Channel.ID) -> AddSourceViewModel
+}
+
+@MainActor
 public protocol SourceEditorFeatureFactory {
   func makeSourceEditor(sourceID: Source.ID) -> SourceEditorViewModel
 }
@@ -61,8 +66,18 @@ public struct NativeChannelSettingsFeatureFactory: ChannelSettingsFeatureFactory
       store: store,
       statuses: statuses,
       collector: collector,
-      sourceEditors: NativeSourceEditorFeatureFactory(store: store, statuses: statuses, collector: collector)
+      sourceEditors: NativeSourceEditorFeatureFactory(store: store, statuses: statuses, collector: collector),
+      addSources: NativeAddSourceFeatureFactory(store: store, collector: collector)
     )
+  }
+}
+
+public struct NativeAddSourceFeatureFactory: AddSourceFeatureFactory {
+  let store: any LibraryStoring
+  let collector: (any CollectorControlling)?
+
+  public func makeAddSource(channelID: Channel.ID) -> AddSourceViewModel {
+    AddSourceViewModel(channelID: channelID, store: store, collector: collector)
   }
 }
 

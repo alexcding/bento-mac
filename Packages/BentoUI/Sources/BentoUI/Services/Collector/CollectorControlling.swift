@@ -21,17 +21,14 @@ public protocol CollectorControlling: AnyObject {
   func secretStatus(pluginID: String) async throws -> [String: Bool]
   func setSecret(pluginID: String, key: String, value: String) async throws
   func deleteSecret(pluginID: String, key: String) async throws
+  /// Checks every plugin's programs again and reloads `plugins` (after the user installed one).
+  func refreshPlugins() async
   /// Starts an interactive login (QR code, phone code).
   func startLogin(pluginID: String) -> any LoginSession
   /// Runs a source now, whatever its schedule. Only on the collector Mac.
   func fetchNow(sourceID: Source.ID) async throws -> RunSummary
   /// What a source's next run would add, without storing anything.
   func preview(sourceID: Source.ID) async throws -> PreviewResult
-}
-
-extension Notification.Name {
-  /// Posted when a plugin's sign-in or secrets change, so screens listing sources refresh.
-  public static let bentoSignInsChanged = Notification.Name("BentoSignInsChanged")
 }
 
 /// One login in progress.

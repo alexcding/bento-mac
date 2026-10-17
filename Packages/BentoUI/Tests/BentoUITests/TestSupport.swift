@@ -24,7 +24,9 @@ final class FakeLibraryStore: LibraryStoring {
   }
   func updateChannel(_ channel: Channel) throws { calls.append("updateChannel(\(channel.name),\(channel.isEnabled))") }
   func deleteChannel(_ id: Channel.ID) throws { calls.append("deleteChannel") }
-  func addSource(channelID: Channel.ID, pluginID: String, query: String, name: String?, skipInitialBacklog: Bool) throws {
+  func addSource(
+    channelID: Channel.ID, pluginID: String, query: String, name: String?, intervalMinutes: Int, skipInitialBacklog: Bool
+  ) throws {
     calls.append("addSource(\(pluginID),\(query),\(skipInitialBacklog))")
   }
   func updateSource(_ source: Source) throws { calls.append("updateSource") }
@@ -84,8 +86,14 @@ final class FakeCollector: CollectorControlling {
     self.plugins = plugins
   }
 
-  func secretStatus(pluginID: String) async throws -> [String: Bool] { ["auth_token": true, "ct0": false] }
-  func setSecret(pluginID: String, key: String, value: String) async throws { calls.append("set(\(pluginID).\(key))") }
+  var status: [String: Bool] = ["auth_token": true, "ct0": false]
+
+  func secretStatus(pluginID: String) async throws -> [String: Bool] { status }
+  func setSecret(pluginID: String, key: String, value: String) async throws {
+    calls.append("set(\(pluginID).\(key))")
+    status[key] = true
+  }
+  func refreshPlugins() async { calls.append("refreshPlugins") }
   func deleteSecret(pluginID: String, key: String) async throws { calls.append("delete(\(pluginID).\(key))") }
   func startLogin(pluginID: String) -> any LoginSession { FakeLoginSession(events: events, collector: self) }
   func becomeCollector() async throws {

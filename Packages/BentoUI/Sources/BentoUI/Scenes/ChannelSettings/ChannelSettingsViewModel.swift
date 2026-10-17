@@ -15,10 +15,6 @@ public final class ChannelSettingsViewModel: Identifiable {
   public let channelID: Channel.ID
   public nonisolated var id: Channel.ID { channelID }
   var name = ""
-  var newSourcePluginID = "rss"
-  var newSourceQuery = ""
-  /// Set on the new source before its first fetch, which can follow within seconds.
-  var newSourceSkipsBacklog = false
   /// The source being edited, shown as a sheet over the channel settings.
   var sourceEditor: SourceEditorViewModel?
   var newDestinationKind: Destination.Kind = .discord
@@ -27,8 +23,8 @@ public final class ChannelSettingsViewModel: Identifiable {
   var newDestinationSecret = ""
   var newDestinationChatID = ""
   private(set) var destinationMessage: String?
-  /// Plugin ID → which of its secrets are set, for plugins that need a sign-in.
-  private(set) var secretStatus: [String: [String: Bool]] = [:]
+  /// Adding a source, shown as a sheet over the channel settings.
+  var addSource: AddSourceViewModel?
   @ObservationIgnored public var onAction: (Action) -> Void = { _ in }
 
   @ObservationIgnored @FetchOne var channel: Channel?
@@ -38,19 +34,22 @@ public final class ChannelSettingsViewModel: Identifiable {
   @ObservationIgnored private let statuses: any SourceStatusProviding
   @ObservationIgnored let collector: (any CollectorControlling)?
   @ObservationIgnored private let sourceEditors: any SourceEditorFeatureFactory
+  @ObservationIgnored private let addSources: any AddSourceFeatureFactory
 
   init(
     channelID: Channel.ID,
     store: any LibraryStoring,
     statuses: any SourceStatusProviding,
     collector: (any CollectorControlling)?,
-    sourceEditors: any SourceEditorFeatureFactory
+    sourceEditors: any SourceEditorFeatureFactory,
+    addSources: any AddSourceFeatureFactory
   ) {
     self.channelID = channelID
     self.store = store
     self.statuses = statuses
     self.collector = collector
     self.sourceEditors = sourceEditors
+    self.addSources = addSources
   }
 
   func load() async {
@@ -65,51 +64,7 @@ public final class ChannelSettingsViewModel: Identifiable {
       try await $destinations.load(Destination.where { $0.channelID.eq(channelID) }.order(by: \.name))
       name = channel?.name ?? ""
     }
-    await refreshSignIns()
   }
-
-  /// Reads which plugins are signed in, so only usable ones are offered as sources.
-  func refreshSignIns() async {
-    guard let collector else { return }
-    for plugin in collector.plugins where plugin.authRequired && (plugin.hasInteractiveLogin || !plugin.secretFields.isEmpty) {
-      if let status = try? await collector.secretStatus(pluginID: plugin.id) {
-        secretStatus[plugin.id] = status
-      }
-    }
-    // A plugin that is no longer offered (signed out meanwhile) must not stay selected.
-    if !availablePlugins.contains(where: { $0.id == newSourcePluginID }) {
-      newSourcePluginID = availablePlugins.first?.id ?? "rss"
-    }
-  }
-
-
-  /// Source types that can be added, or RSS without a collector. On the collector Mac, which does
-  /// the fetching, only plugins that are ready (programs installed, sign-in set if needed); another
-  /// Mac cannot tell what the collector has, so it lists every source plugin.
-  var availablePlugins: [PluginInfo] {
-    let loaded = collector?.plugins.filter { $0.isSource && $0.loadError == nil } ?? []
-    let offered = filtersByReadiness ? loaded.filter { $0.isReady(secretStatus: secretStatus[$0.id]) } : loaded
-    return offered.isEmpty ? [.rss] : offered
-  }
-
-  /// Source plugins left out because they still need setting up on this, the collector, Mac.
-  var pluginsNeedingSetup: [PluginInfo] {
-    guard filtersByReadiness else { return [] }
-    return (collector?.plugins ?? []).filter {
-      $0.isSource && $0.loadError == nil && !$0.isReady(secretStatus: secretStatus[$0.id])
-    }
-  }
-
-  private var filtersByReadiness: Bool { collector?.isThisMacCollector ?? false }
-
-  /// The loaded plugins, to refresh sign-in status when the collector's catalog arrives.
-  var pluginIDs: [String] { collector?.plugins.map(\.id) ?? [] }
-
-  var newSourcePlugin: PluginInfo? {
-    availablePlugins.first { $0.id == newSourcePluginID } ?? availablePlugins.first
-  }
-
-  var canAddSource: Bool { newSourcePlugin?.accepts(query: newSourceQuery) ?? false }
 
   func status(for source: Source) -> SourceStatus? {
     statuses.status(for: source.id)
@@ -132,18 +87,14 @@ public final class ChannelSettingsViewModel: Identifiable {
     withErrorReporting { try store.updateChannel(channel) }
   }
 
-  func addSource() {
-    guard let plugin = newSourcePlugin, plugin.accepts(query: newSourceQuery) else { return }
-    withErrorReporting {
-      try store.addSource(
-        channelID: channelID,
-        pluginID: plugin.id,
-        query: newSourceQuery,
-        name: nil,
-        skipInitialBacklog: newSourceSkipsBacklog
-      )
+  func showAddSource() {
+    let model = addSources.makeAddSource(channelID: channelID)
+    model.onAction = { [weak self] action in
+      switch action {
+      case .dismiss: self?.addSource = nil
+      }
     }
-    newSourceQuery = ""
+    addSource = model
   }
 
   func update(_ source: Source) {

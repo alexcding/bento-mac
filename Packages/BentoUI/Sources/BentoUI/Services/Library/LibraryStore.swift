@@ -10,7 +10,14 @@ public protocol LibraryStoring {
   func updateChannel(_ channel: Channel) throws
   func deleteChannel(_ id: Channel.ID) throws
   /// Adds a source of `pluginID` to a channel; `name` defaults from the query.
-  func addSource(channelID: Channel.ID, pluginID: String, query: String, name: String?, skipInitialBacklog: Bool) throws
+  func addSource(
+    channelID: Channel.ID,
+    pluginID: String,
+    query: String,
+    name: String?,
+    intervalMinutes: Int,
+    skipInitialBacklog: Bool
+  ) throws
   func updateSource(_ source: Source) throws
   func deleteSource(_ id: Source.ID) throws
   func addDestination(id: Destination.ID, channelID: Channel.ID, kind: Destination.Kind, name: String, chatID: String?) throws
@@ -50,13 +57,15 @@ public struct NativeLibraryStore: LibraryStoring {
     pluginID: String,
     query: String,
     name: String?,
+    intervalMinutes: Int,
     skipInitialBacklog: Bool
   ) throws {
     let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
     let name = name.flatMap { $0.isEmpty ? nil : $0 } ?? Self.defaultName(pluginID: pluginID, query: query)
     try database.write { db in
       _ = try Mutations.addSource(
-        db, channelID: channelID, pluginID: pluginID, name: name, query: query, skipInitialBacklog: skipInitialBacklog
+        db, channelID: channelID, pluginID: pluginID, name: name, query: query,
+        intervalMinutes: max(intervalMinutes, 1), skipInitialBacklog: skipInitialBacklog
       )
     }
   }

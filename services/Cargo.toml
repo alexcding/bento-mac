@@ -1,0 +1,43 @@
+[workspace]
+resolver = "3"
+members = [
+  "crates/bento-domain",
+  "crates/bento-app",
+  "crates/bento-store-sqlite",
+  "crates/bento-collector",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/alexcding/Bento"
+
+[workspace.dependencies]
+bento-domain = { path = "crates/bento-domain" }
+bento-app = { path = "crates/bento-app" }
+bento-store-sqlite = { path = "crates/bento-store-sqlite" }
+
+anyhow = "1.0.104"
+base64 = "0.23.1"
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "serde", "std"] }
+clap = { version = "4.6.7", features = ["derive", "env"] }
+dirs = "7.0.0"
+flate2 = "1.1.10"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tempfile = "3.27.0"
+thiserror = "2.0.21"
+tokio = { version = "1.53.3", features = ["macros", "rt-multi-thread", "signal", "time"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+uuid = { version = "1.28.0", features = ["serde", "v5"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"

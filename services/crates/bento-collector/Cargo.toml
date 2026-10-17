@@ -1,0 +1,24 @@
+[package]
+name = "bento-collector"
+description = "Bento's background daemon. Wires adapters into use cases."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+bento-app.workspace = true
+bento-domain.workspace = true
+bento-store-sqlite.workspace = true
+clap.workspace = true
+dirs.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

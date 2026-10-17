@@ -1,0 +1,21 @@
+[package]
+name = "bento-store-sqlite"
+description = "SQLite adapters for Bento's storage ports (collector.sqlite)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+bento-app.workspace = true
+bento-domain.workspace = true
+rusqlite.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+chrono.workspace = true
+tempfile.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

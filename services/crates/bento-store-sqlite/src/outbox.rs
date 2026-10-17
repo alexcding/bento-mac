@@ -1,0 +1,144 @@
+use bento_app::{Outbox, OutboxEntry, PortError};
+use bento_domain::FeedItem;
+use rusqlite::params;
+
+use crate::{SqliteStore, StoreError};
+
+/// One stored outbox row.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OutboxRow {
+    pub seq: i64,
+    pub item: FeedItem,
+    pub detail: Option<Vec<u8>>,
+}
+
+impl SqliteStore {
+    fn append_outbox(&self, entries: &[OutboxEntry]) -> Result<(), StoreError> {
+        let mut connection = self.connection();
+        let transaction = connection.transaction()?;
+        {
+            let mut insert = transaction.prepare_cached(
+                "INSERT INTO outbox (item_id, payload, detail) VALUES (?1, ?2, ?3)",
+            )?;
+            for entry in entries {
+                insert.execute(params![
+                    entry.item.id.to_string(),
+                    serde_json::to_string(&entry.item)?,
+                    entry.detail,
+                ])?;
+            }
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
+    /// Rows with `seq` greater than `after`, oldest first.
+    pub fn outbox_after(&self, after: i64, limit: usize) -> Result<Vec<OutboxRow>, StoreError> {
+        let connection = self.connection();
+        let mut select = connection.prepare_cached(
+            "SELECT seq, payload, detail FROM outbox WHERE seq > ?1 ORDER BY seq LIMIT ?2",
+        )?;
+        let rows = select.query_map(
+            params![after, i64::try_from(limit).unwrap_or(i64::MAX)],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<Vec<u8>>>(2)?,
+                ))
+            },
+        )?;
+        rows.map(|row| {
+            let (seq, payload, detail) = row?;
+            Ok(OutboxRow {
+                seq,
+                item: serde_json::from_str(&payload)?,
+                detail,
+            })
+        })
+        .collect()
+    }
+}
+
+impl Outbox for SqliteStore {
+    fn append(&self, entries: &[OutboxEntry]) -> Result<(), PortError> {
+        self.append_outbox(entries).map_err(PortError::new)
+    }
+}
+
+impl Outbox for &SqliteStore {
+    fn append(&self, entries: &[OutboxEntry]) -> Result<(), PortError> {
+        (*self).append(entries)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bento_domain::RawItem;
+    use chrono::{TimeZone, Utc};
+    use uuid::Uuid;
+
+    use super::*;
+
+    fn entry(external_id: &str, detail: Option<Vec<u8>>) -> OutboxEntry {
+        let fetched_at = Utc.with_ymd_and_hms(2026, 10, 16, 9, 0, 0).unwrap();
+        let item = RawItem {
+            external_id: external_id.into(),
+            ..Default::default()
+        }
+        .normalize(Uuid::from_u128(1), fetched_at)
+        .pop()
+        .unwrap()
+        .item;
+        OutboxEntry { item, detail }
+    }
+
+    #[test]
+    fn appends_and_reads_back_in_order() {
+        let store = SqliteStore::open_in_memory().unwrap();
+        store
+            .append(&[entry("a", Some(vec![1, 2])), entry("b", None)])
+            .unwrap();
+
+        let rows = store.outbox_after(0, 10).unwrap();
+
+        assert_eq!(rows.len(), 2);
+        assert!(rows[0].seq < rows[1].seq);
+        assert_eq!(rows[0].item, entry("a", None).item);
+        assert_eq!(rows[0].detail, Some(vec![1, 2]));
+        assert_eq!(rows[1].detail, None);
+    }
+
+    #[test]
+    fn reads_only_after_cursor() {
+        let store = SqliteStore::open_in_memory().unwrap();
+        store
+            .append(&[entry("a", None), entry("b", None), entry("c", None)])
+            .unwrap();
+        let first = store.outbox_after(0, 1).unwrap();
+
+        let rest = store.outbox_after(first[0].seq, 10).unwrap();
+
+        assert_eq!(
+            rest.iter()
+                .map(|r| r.item.external_id.as_str())
+                .collect::<Vec<_>>(),
+            ["b", "c"]
+        );
+    }
+
+    #[test]
+    fn payload_uses_milliseconds_and_snake_case() {
+        let store = SqliteStore::open_in_memory().unwrap();
+        store.append(&[entry("a", None)]).unwrap();
+
+        let payload: String = store
+            .connection()
+            .query_row("SELECT payload FROM outbox", [], |row| row.get(0))
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_str(&payload).unwrap();
+
+        assert_eq!(json["fetched_at"], 1_792_141_200_000_i64);
+        assert_eq!(json["is_published_at_estimated"], true);
+    }
+}

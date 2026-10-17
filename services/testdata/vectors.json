@@ -1,0 +1,31 @@
+{
+  "namespace": "f3433bf7-7680-4fa1-b060-63c040a86a9a",
+  "stable_ids": [
+    {
+      "source_id": "6f1c2a52-1d0e-4c7a-9a52-2f7e1b1c9d10",
+      "external_id": "1834567890123456789",
+      "expected": "45494751-1472-5c8f-9c00-76446f6c1b1f"
+    },
+    {
+      "source_id": "6f1c2a52-1d0e-4c7a-9a52-2f7e1b1c9d10",
+      "external_id": "https://example.com/post?id=1",
+      "expected": "6c33f2ab-add7-5b3d-885f-1cfc1056988c"
+    },
+    {
+      "source_id": "0b8e4d1a-7a35-4d0b-8f2e-5c9d3e6a1b24",
+      "external_id": "BV1xx411c7mD",
+      "expected": "4af3e7be-f776-56ce-aa9e-9c9ef5db636b"
+    },
+    {
+      "source_id": "0b8e4d1a-7a35-4d0b-8f2e-5c9d3e6a1b24",
+      "external_id": "中文标识",
+      "expected": "6c2a082d-320d-5b8f-8458-22568990aef1"
+    }
+  ],
+  "details": [
+    {
+      "markdown": "# 标题\n\nHello **Bento**. 这是一段测试文本。\n\n- one\n- two\n",
+      "encoded_base64": "AQFEALv/IyDmoIfpopgKCkhlbGxvICoqQmVudG8qKi4g6L+Z5piv5LiA5q615rWL6K+V5paH5pys44CCCgotIG9uZQotIHR3bwo="
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+[package]
+name = "bento-app"
+description = "Bento use cases and the ports they depend on."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+bento-domain.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

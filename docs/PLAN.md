@@ -107,6 +107,12 @@ or defaulted), last-edit-wins per column, every `BLOB` column syncs as a `CKAsse
 Local only: `archive.sqlite` (every item and detail forever, plain-text FTS index) on the Mac;
 `collector.sqlite` (tasks, schedules, outbox, deliveries, logs) owned by Rust.
 
+### App layout
+
+Slack/Discord style: a sidebar of channels (each row shows the channel name, source count and
+Enabled/Paused, with a "New channel" row at the end), and the selected channel's feed of cards in
+the main area. Selecting a card opens its detail.
+
 ### Card
 
 | Part | Content |
@@ -120,19 +126,34 @@ Local only: `archive.sqlite` (every item and detail forever, plain-text FTS inde
 
 ## Plugins
 
-A plugin is a folder with `plugin.toml` and optionally an executable, run by the daemon as a child
-process with JSON over stdin/stdout.
+Each plugin is a self-contained folder:
 
-- **Manifest-only**: map operations to CLI commands and JSON paths to raw-item fields
-  (YouTube via `yt-dlp`, X via `twitter-cli`).
-- **Protocol**: an executable implementing `describe`, `configure`, `auth.begin`/`auth.step`,
-  `fetch`, `publish`, `health` (Bilibili with QR login).
-- **Built-in**: Rust code in the daemon with the same contract (RSS, publishers).
+```
+plugins/<id>/
+  plugin.json            manifest (required)
+  settings.schema.json   JSON Schema (2020-12) for the plugin's source settings
+  mapping.json           CLI output → raw item, as RFC 9535 JSONPath expressions (CLI plugins)
+  src/ + Cargo.toml      code, for protocol plugins
+  bin/                   built executable, for protocol plugins
+  README.md
+```
+
+- `plugin.json` declares id, name, version, protocol version, capabilities (`source`,
+  `publisher`, `auth`), required external binaries with check and install commands, auth kind
+  (secret fields, QR, phone code) and default fetch interval. Its own JSON Schema lives in
+  `plugins/plugin.schema.json`, so manifests are validated in CI and at load.
+- **CLI plugins** (YouTube via `yt-dlp`, X via `twitter-cli`): `plugin.json` maps each operation
+  to a command template, and `mapping.json` maps the command's JSON output to raw-item fields.
+  No code.
+- **Protocol plugins** (Bilibili with QR login): an executable speaking JSON-RPC 2.0 over
+  stdin/stdout, like LSP and MCP. Methods: `initialize`, `configure`, `auth/begin`, `auth/step`,
+  `source/fetch`, `publisher/send`, `health`.
+- **Built-in** (RSS, publishers): Rust code in the daemon behind the same port.
 - The daemon enforces timeouts, concurrency, rate limits and backoff, passes only that plugin's
-  Keychain secrets, validates output, and checks the protocol version.
-- Settings forms and login flows in the app are generated from the manifest; required binaries
-  appear on a Dependencies screen. External tools are never bundled.
-- First-party CLI-wrapping plugins live in a separate `bento-plugins` repo.
+  Keychain secrets, validates output against the raw-item schema, and checks the protocol version.
+- Settings forms and login flows in the app are generated from `settings.schema.json` and the
+  auth declaration; required binaries appear on a Dependencies screen. External tools are never
+  bundled.
 
 Publishers take `FeedItem + detail + destination` and return `{ remote_message_id }` or an error
 marked retryable or not. Delivery rules: per-destination post delay (20 s), 429
@@ -144,9 +165,22 @@ destinations, rejected photo falls back to text, a timed-out send is never retri
 ```
 Apps/        Bento.xcodeproj (macOS; iOS later), Local.xcconfig.template
 Packages/    BentoData, BentoUI
-services/    Cargo workspace: collector-core, plugins, publishers, bento-collector
+services/    Cargo workspace (below)
+plugins/     one folder per plugin
 docs/        PLAN.md
 ```
+
+The Rust workspace is ports and adapters:
+
+| Crate | Layer | Depends on | Tested with |
+|---|---|---|---|
+| `bento-domain` | item model, stable IDs, detail codec; no I/O | — | unit tests |
+| `bento-app` | use cases and the ports they need (outbox, clock, sources, AI, publishers) | domain | in-memory fakes |
+| `bento-store-sqlite` | `collector.sqlite` adapter | app, domain | temporary databases |
+| `bento-source-*`, `bento-plugin-host`, `bento-ai-cli`, `bento-publish-*` | adapters (phase 1+) | app, domain | fixtures, fake processes |
+| `bento-collector` | binary: composition root, CLI, logging, runtime | all | smoke runs |
+
+`services/testdata/vectors.json` holds ID and codec vectors that both the Rust and Swift tests check.
 
 Builds from source use `Local.xcconfig` (git-ignored) for team and iCloud container IDs, or run
 with sync off.

@@ -131,13 +131,57 @@ public nonisolated struct FeedItemDetail: Hashable, Identifiable, Sendable {
   }
 }
 
-/// Keyed by item, so an item is bookmarked at most once without a UNIQUE constraint.
+/// A saved copy of a feed item. Independent of `feedItems` (no foreign key), so it survives the
+/// item being purged or its source deleted. Its ID is the item's ID, so an item is bookmarked at
+/// most once without a UNIQUE constraint.
 @Table("bookmarks")
 public nonisolated struct Bookmark: Hashable, Identifiable, Sendable {
-  @Column(primaryKey: true)
-  public let feedItemID: FeedItem.ID
+  public let id: FeedItem.ID
+  public var sourceID: UUID
+  public var url: String?
+  public var title: String?
+  public var text = ""
+  public var translatedTitle: String?
+  public var summary: String?
+  public var authorName: String?
+  public var authorHandle: String?
+  public var authorAvatarURL: String?
+  @Column(as: [Media].JSONRepresentation.self)
+  public var media: [Media] = []
+  public var publishedAt: Date
+  public var isPublishedAtEstimated = false
   public var createdAt: Date
-  public var id: FeedItem.ID { feedItemID }
+}
+
+/// The bookmarked item's detail, copied with it.
+@Table("bookmarkDetails")
+public nonisolated struct BookmarkDetail: Hashable, Identifiable, Sendable {
+  @Column(primaryKey: true)
+  public let bookmarkID: Bookmark.ID
+  /// `DetailCodec` blob.
+  public var markdown: Data
+  public var id: Bookmark.ID { bookmarkID }
+}
+
+extension Bookmark {
+  init(copying item: FeedItem, createdAt: Date) {
+    self.init(
+      id: item.id, sourceID: item.sourceID, url: item.url, title: item.title, text: item.text,
+      translatedTitle: item.translatedTitle, summary: item.summary, authorName: item.authorName,
+      authorHandle: item.authorHandle, authorAvatarURL: item.authorAvatarURL, media: item.media,
+      publishedAt: item.publishedAt, isPublishedAtEstimated: item.isPublishedAtEstimated, createdAt: createdAt
+    )
+  }
+
+  /// The saved copy shaped as a feed item, so the same card and detail views show it.
+  public var asFeedItem: FeedItem {
+    FeedItem(
+      id: id, sourceID: sourceID, externalID: "", url: url, title: title, text: text,
+      translatedTitle: translatedTitle, summary: summary, authorName: authorName,
+      authorHandle: authorHandle, authorAvatarURL: authorAvatarURL, media: media,
+      publishedAt: publishedAt, isPublishedAtEstimated: isPublishedAtEstimated, fetchedAt: createdAt
+    )
+  }
 }
 
 @Table("readStates")

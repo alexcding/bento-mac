@@ -123,8 +123,29 @@ public enum BentoDatabase {
       try #sql(
         """
         CREATE TABLE "bookmarks" (
-          "feedItemID" TEXT PRIMARY KEY NOT NULL REFERENCES "feedItems"("id") ON DELETE CASCADE,
+          "id" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE DEFAULT (uuid()),
+          "sourceID" TEXT NOT NULL,
+          "url" TEXT,
+          "title" TEXT,
+          "text" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT '',
+          "translatedTitle" TEXT,
+          "summary" TEXT,
+          "authorName" TEXT,
+          "authorHandle" TEXT,
+          "authorAvatarURL" TEXT,
+          "media" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT '[]',
+          "publishedAt" TEXT NOT NULL,
+          "isPublishedAtEstimated" INTEGER NOT NULL ON CONFLICT REPLACE DEFAULT 0,
           "createdAt" TEXT NOT NULL
+        ) STRICT
+        """
+      )
+      .execute(db)
+      try #sql(
+        """
+        CREATE TABLE "bookmarkDetails" (
+          "bookmarkID" TEXT PRIMARY KEY NOT NULL REFERENCES "bookmarks"("id") ON DELETE CASCADE,
+          "markdown" BLOB NOT NULL
         ) STRICT
         """
       )
@@ -147,6 +168,8 @@ public enum BentoDatabase {
         """
       )
       .execute(db)
+      try #sql(#"CREATE INDEX "index_bookmarks_on_createdAt" ON "bookmarks"("createdAt")"#)
+        .execute(db)
       try #sql(#"CREATE INDEX "index_feedItems_on_publishedAt" ON "feedItems"("publishedAt")"#)
         .execute(db)
       try #sql(
@@ -181,6 +204,7 @@ extension DependencyValues {
       FeedItem.self,
       FeedItemDetail.self,
       Bookmark.self,
+      BookmarkDetail.self,
       ReadState.self,
       containerIdentifier: iCloudContainer
     )

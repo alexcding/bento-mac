@@ -38,11 +38,12 @@ pub fn load(directories: &[PathBuf], secrets: &Arc<dyn SecretStore>) -> PluginRe
 /// so Settings lists every source type in one place.
 pub async fn publish_catalog(registry: &PluginRegistry, store: &SqliteStore) -> Result<()> {
     let mut entries = vec![rss_entry()];
-    for plugin in &registry.plugins {
-        let mut statuses = Vec::new();
-        for requirement in &plugin.manifest.requires {
-            statuses.push(requirements::check(requirement).await);
-        }
+    // Every requirement check runs at once, so one slow check does not hold up the others.
+    let checks = registry.plugins.iter().map(|plugin| {
+        futures::future::join_all(plugin.manifest.requires.iter().map(requirements::check))
+    });
+    let statuses_per_plugin = futures::future::join_all(checks).await;
+    for (plugin, statuses) in registry.plugins.iter().zip(statuses_per_plugin) {
         entries.push(PluginCatalogEntry {
             id: plugin.manifest.id.clone(),
             name: plugin.manifest.name.clone(),

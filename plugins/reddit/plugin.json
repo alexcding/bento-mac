@@ -56,10 +56,11 @@
           "args": [
             "rdt",
             "search",
-            "{q|urldecode}",
             "--limit",
             "{limit}",
-            "--json"
+            "--json",
+            "--",
+            "{q|urldecode}"
           ]
         },
         {
@@ -78,10 +79,11 @@
           "args": [
             "rdt",
             "search",
-            "{q}",
             "--limit",
             "{limit}",
-            "--json"
+            "--json",
+            "--",
+            "{q}"
           ]
         }
       ],

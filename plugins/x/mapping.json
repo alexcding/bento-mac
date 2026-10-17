@@ -1,6 +1,10 @@
 {
   "items": [
-    "$..[?(@.full_text || @.text) && (@.id_str || @.rest_id || @.id)]",
+    "$.data[*]",
+    "$.data",
+    "$.tweets[*]",
+    "$.items[*]",
+    "$.results[*]",
     "$"
   ],
   "external_id": [

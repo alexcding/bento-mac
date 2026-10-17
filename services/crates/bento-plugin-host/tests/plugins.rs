@@ -74,12 +74,25 @@ fn x_routes_queries() {
     assert_eq!(argv(&r, "x", "twitter.com/rustlang/status/123")[1], "tweet");
     assert_eq!(
         argv(&r, "x", "https://x.com/search?q=rust%20lang&src=typed"),
-        ["twitter", "search", "rust lang", "-n", "20", "--json"]
+        ["twitter", "search", "-n", "20", "--json", "--", "rust lang"]
     );
     assert_eq!(argv(&r, "x", "https://x.com/home")[1], "feed");
     assert_eq!(
         argv(&r, "x", "rust release"),
-        ["twitter", "search", "rust release", "-n", "20", "--json"]
+        [
+            "twitter",
+            "search",
+            "-n",
+            "20",
+            "--json",
+            "--",
+            "rust release"
+        ]
+    );
+    assert_eq!(
+        argv(&r, "x", "-filter:replies rust").last().unwrap(),
+        "-filter:replies rust",
+        "a leading dash is still the query, after `--`"
     );
 }
 
@@ -93,6 +106,11 @@ fn x_maps_posts_media_and_quotes() {
         .as_ref()
         .unwrap()
         .map_output(&fixture("x", "feed.json"));
+    assert_eq!(
+        items.len(),
+        2,
+        "a quoted post is the item's reference, not a separate item"
+    );
 
     let first = items
         .iter()
@@ -192,7 +210,7 @@ fn reddit_routes_and_maps() {
             &r,
             "reddit",
             "https://reddit.com/r/rust/search?q=async+await"
-        )[2],
+        )[6],
         "async await"
     );
 
@@ -277,6 +295,125 @@ async fn fetch_runs_the_command_with_secrets_in_its_environment() {
 
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].text, "hi");
+}
+
+#[test]
+fn reserved_ids_are_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let rss = dir.path().join("myrss");
+    std::fs::create_dir(&rss).unwrap();
+    std::fs::write(
+        rss.join("plugin.json"),
+        r#"{"id":"rss","name":"R","version":"1","protocol":1,"capabilities":[]}"#,
+    )
+    .unwrap();
+    let secrets: Arc<dyn SecretStore> = Arc::new(Secrets(vec![]));
+
+    let registry = PluginRegistry::load(&[dir.path().to_owned()], &secrets);
+
+    assert!(registry.plugins.is_empty());
+    assert!(registry.errors[0].message.contains("reserved"));
+}
+
+/// Writes a one-command source plugin into a temporary directory and returns its fetcher input.
+fn shell_plugin(
+    id: &str,
+    script: &str,
+    cli_extra: &serde_json::Value,
+) -> (tempfile::TempDir, PluginRegistry, SourceConfig) {
+    let dir = tempfile::tempdir().unwrap();
+    let plugin = dir.path().join(id);
+    std::fs::create_dir(&plugin).unwrap();
+    let mut cli = serde_json::json!({
+        "commands": [{"match": "^.*$", "args": ["/bin/sh", "-c", script]}],
+        "output": "json-lines"
+    });
+    cli.as_object_mut()
+        .unwrap()
+        .extend(cli_extra.as_object().unwrap().clone());
+    let manifest = serde_json::json!({
+        "id": id, "name": id, "version": "1", "protocol": 1, "capabilities": ["source"],
+        "source": {"default_interval_minutes": 5, "cli": cli}
+    });
+    std::fs::write(plugin.join("plugin.json"), manifest.to_string()).unwrap();
+    std::fs::write(
+        plugin.join("mapping.json"),
+        r#"{"external_id":"$.id","url":"$.url"}"#,
+    )
+    .unwrap();
+    let secrets: Arc<dyn SecretStore> = Arc::new(Secrets(vec![]));
+    let registry = PluginRegistry::load(&[dir.path().to_owned()], &secrets);
+    assert!(registry.errors.is_empty(), "{:?}", registry.errors);
+    let source: SourceConfig = serde_json::from_value(serde_json::json!({
+        "id": uuid::Uuid::from_u128(1), "plugin_id": id, "name": id, "query": "",
+        "interval_minutes": 5, "enabled": true
+    }))
+    .unwrap();
+    (dir, registry, source)
+}
+
+/// A command that prints more than the output limit is killed and its output still used.
+#[tokio::test]
+async fn oversized_output_is_cut_not_timed_out() {
+    let (_dir, registry, source) = shell_plugin(
+        "big",
+        r#"echo '{"id":"1","url":"https://e.com/1"}'; exec yes '{"pad":1}'"#,
+        &serde_json::json!({"timeout_seconds": 30}),
+    );
+    let started = std::time::Instant::now();
+
+    let items = registry.fetchers()["big"].fetch(&source).await.unwrap();
+
+    assert_eq!(items.len(), 1);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(15),
+        "stopped at the limit, not the timeout"
+    );
+}
+
+/// On timeout, a plugin that allows partial output keeps what was printed.
+#[tokio::test]
+async fn timeout_keeps_partial_output_when_allowed() {
+    let (_dir, registry, source) = shell_plugin(
+        "slow",
+        r#"echo '{"id":"1","url":"https://e.com/1"}'; exec sleep 30"#,
+        &serde_json::json!({"timeout_seconds": 1, "partial_output_ok": true}),
+    );
+
+    let items = registry.fetchers()["slow"].fetch(&source).await.unwrap();
+
+    assert_eq!(items.len(), 1);
+}
+
+/// Without partial output allowed, a timeout is an error.
+#[tokio::test]
+async fn timeout_fails_without_partial_output() {
+    let (_dir, registry, source) = shell_plugin(
+        "slow",
+        r#"echo '{"id":"1","url":"https://e.com/1"}'; exec sleep 30"#,
+        &serde_json::json!({"timeout_seconds": 1}),
+    );
+
+    let error = registry.fetchers()["slow"]
+        .fetch(&source)
+        .await
+        .unwrap_err();
+
+    assert!(error.to_string().contains("timed out"), "{error}");
+}
+
+/// A child that floods stderr does not block: stderr is drained even past the kept size.
+#[tokio::test]
+async fn noisy_stderr_does_not_block() {
+    let (_dir, registry, source) = shell_plugin(
+        "noisy",
+        r#"head -c 2000000 /dev/zero | tr '\0' 'x' >&2; echo '{"id":"1","url":"https://e.com/1"}'"#,
+        &serde_json::json!({"timeout_seconds": 10}),
+    );
+
+    let items = registry.fetchers()["noisy"].fetch(&source).await.unwrap();
+
+    assert_eq!(items.len(), 1);
 }
 
 #[test]

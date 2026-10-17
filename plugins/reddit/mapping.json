@@ -1,6 +1,10 @@
 {
   "items": [
-    "$..[?@.title && (@.permalink || @.url)]",
+    "$.data.children[*].data",
+    "$.posts[*]",
+    "$.post",
+    "$.data[*]",
+    "$.items[*]",
     "$"
   ],
   "external_id": [

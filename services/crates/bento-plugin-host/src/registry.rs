@@ -10,6 +10,9 @@ use crate::fetcher::{CliSourceFetcher, compile_routes};
 use crate::manifest::{Capability, Manifest, PROTOCOL_VERSION};
 use crate::mapping::Mapping;
 
+/// IDs of sources built into the daemon; plugins cannot use them.
+pub const RESERVED_IDS: &[&str] = &["rss"];
+
 /// A plugin that loaded successfully.
 pub struct LoadedPlugin {
     pub manifest: Manifest,
@@ -87,6 +90,12 @@ fn load_plugin(folder: &Path, secrets: &Arc<dyn SecretStore>) -> Result<LoadedPl
         return Err(format!(
             "plugin protocol {} is not supported (this version of Bento supports {PROTOCOL_VERSION})",
             manifest.protocol
+        ));
+    }
+    if RESERVED_IDS.contains(&manifest.id.as_str()) {
+        return Err(format!(
+            "plugin id `{}` is reserved for a built-in source",
+            manifest.id
         ));
     }
     if !manifest

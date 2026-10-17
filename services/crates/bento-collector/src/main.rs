@@ -285,6 +285,9 @@ fn plugin_command(
             }
         }
         PluginAction::Test { folder, output } => {
+            let folder = folder
+                .canonicalize()
+                .with_context(|| folder.display().to_string())?;
             let parent = folder
                 .parent()
                 .context("plugin folder has no parent")?

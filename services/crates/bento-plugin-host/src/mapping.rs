@@ -13,7 +13,7 @@ use serde_json_path::JsonPath;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Mapping {
-    /// Paths selecting the items; the first that selects anything wins. A selected array
+    /// Paths selecting the items; the first that yields mapped items wins. A selected array
     /// contributes its elements. Default `["$"]`.
     #[serde(default = "default_items")]
     pub items: Vec<String>,
@@ -148,26 +148,26 @@ impl Mapping {
         Ok(())
     }
 
-    /// Maps every item in `document`. Items without an ID (or URL, when required) are skipped.
+    /// Maps every item in `document`. Each `items` path is tried in order and the first that yields
+    /// at least one mapped item wins. Items without an ID (or URL, when required) are skipped.
     #[must_use]
     pub fn map(&self, document: &Value) -> Vec<RawItem> {
-        let mut items = Vec::new();
         for path in &self.items {
-            let selected = query(path, document);
-            if selected.is_empty() {
-                continue;
+            let items: Vec<RawItem> = query(path, document)
+                .into_iter()
+                .flat_map(|value| match value {
+                    Value::Array(elements) => elements
+                        .iter()
+                        .filter_map(|e| self.fields.item(e))
+                        .collect(),
+                    other => self.fields.item(other).into_iter().collect::<Vec<_>>(),
+                })
+                .collect();
+            if !items.is_empty() {
+                return items;
             }
-            for value in selected {
-                match value {
-                    Value::Array(elements) => {
-                        items.extend(elements.iter().filter_map(|e| self.fields.item(e)));
-                    }
-                    other => items.extend(self.fields.item(other)),
-                }
-            }
-            break;
         }
-        items
+        Vec::new()
     }
 }
 
@@ -458,7 +458,7 @@ mod tests {
     }
 
     #[test]
-    fn first_items_path_that_selects_anything_wins_and_arrays_flatten() {
+    fn first_items_path_that_yields_items_wins_and_arrays_flatten() {
         let m = mapping(
             json!({"items": ["$.missing", "$"], "external_id": "$.id", "require_url": false}),
         );

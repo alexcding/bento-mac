@@ -72,10 +72,11 @@
           "args": [
             "twitter",
             "search",
-            "{q|urldecode}",
             "-n",
             "{limit}",
-            "--json"
+            "--json",
+            "--",
+            "{q|urldecode}"
           ]
         },
         {
@@ -104,10 +105,11 @@
           "args": [
             "twitter",
             "search",
-            "{q}",
             "-n",
             "{limit}",
-            "--json"
+            "--json",
+            "--",
+            "{q}"
           ]
         }
       ],

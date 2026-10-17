@@ -18,6 +18,8 @@ use crate::output;
 
 /// Largest stdout read from a source command.
 const MAX_OUTPUT_BYTES: usize = 24 * 1024 * 1024;
+/// Largest stderr kept for error messages.
+const MAX_STDERR_BYTES: usize = 64 * 1024;
 /// Upper bound for a source's `limit` setting.
 const MAX_LIMIT: u32 = 100;
 
@@ -40,6 +42,14 @@ pub enum FetchError {
         status: String,
         stderr: String,
     },
+}
+
+/// Why reading a command's stdout stopped.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Ended {
+    Eof,
+    Timeout,
+    Truncated,
 }
 
 /// A compiled command route.
@@ -124,6 +134,9 @@ impl CliSourceFetcher {
         Ok(env)
     }
 
+    /// Runs the command and returns its stdout. Reading stops at `MAX_OUTPUT_BYTES` (the child is
+    /// killed and what was read is used) or at the timeout (the child is killed; the output read so
+    /// far is used only if the plugin allows partial output).
     async fn run(&self, argv: &[String], env: Vec<(String, String)>) -> Result<String, FetchError> {
         let program = argv[0].clone();
         let mut child = Command::new(&program)
@@ -144,46 +157,74 @@ impl CliSourceFetcher {
                 },
             })?;
         let mut stdout = child.stdout.take().expect("piped");
-        let mut stderr = child.stderr.take().expect("piped");
+        let stderr = child.stderr.take().expect("piped");
+        let stderr_task = tokio::spawn(drain_stderr(stderr));
         let seconds = self.cli.timeout_seconds;
-        let collect = async {
-            let mut out = Vec::new();
-            let mut err = Vec::new();
-            let mut limited = (&mut stdout).take(MAX_OUTPUT_BYTES as u64);
-            let (read_out, read_err) =
-                tokio::join!(limited.read_to_end(&mut out), stderr.read_to_end(&mut err));
-            read_out?;
-            read_err?;
-            let status = child.wait().await?;
-            Ok::<_, std::io::Error>((status, out, err))
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(seconds);
+        let spawn_error = |source| FetchError::Spawn {
+            program: program.clone(),
+            source,
         };
-        let (status, out, err) = tokio::time::timeout(Duration::from_secs(seconds), collect)
+
+        let mut out = Vec::new();
+        let mut chunk = vec![0_u8; 64 * 1024];
+        let mut ended = Ended::Eof;
+        loop {
+            match tokio::time::timeout_at(deadline, stdout.read(&mut chunk)).await {
+                Err(_) => {
+                    ended = Ended::Timeout;
+                    break;
+                }
+                Ok(Ok(0)) => break,
+                Ok(Ok(n)) => {
+                    out.extend_from_slice(&chunk[..n]);
+                    if out.len() >= MAX_OUTPUT_BYTES {
+                        out.truncate(MAX_OUTPUT_BYTES);
+                        ended = Ended::Truncated;
+                        break;
+                    }
+                }
+                Ok(Err(source)) => return Err(spawn_error(source)),
+            }
+        }
+        let mut status = None;
+        if ended == Ended::Eof {
+            match tokio::time::timeout_at(deadline, child.wait()).await {
+                Ok(exit) => status = Some(exit.map_err(spawn_error)?),
+                Err(_) => ended = Ended::Timeout,
+            }
+        }
+        if status.is_none() {
+            let _ = child.kill().await;
+        }
+        let err = tokio::time::timeout(Duration::from_secs(1), stderr_task)
             .await
-            .map_err(|_| FetchError::Timeout {
-                program: program.clone(),
-                seconds,
-            })?
-            .map_err(|source| FetchError::Spawn {
-                program: program.clone(),
-                source,
-            })?;
+            .ok()
+            .and_then(Result::ok)
+            .unwrap_or_default();
         let partial_ok = self.cli.partial_output_ok && !out.is_empty();
-        if !status.success() && !partial_ok {
-            let stderr = String::from_utf8_lossy(&err);
-            let tail: String = stderr
-                .trim()
-                .chars()
-                .rev()
-                .take(800)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect();
-            return Err(FetchError::Failed {
-                program,
-                status: status.to_string(),
-                stderr: tail,
-            });
+        match (ended, status) {
+            (Ended::Timeout, _) if !partial_ok => {
+                return Err(FetchError::Timeout { program, seconds });
+            }
+            (_, Some(status)) if !status.success() && !partial_ok => {
+                let stderr = String::from_utf8_lossy(&err);
+                let tail: String = stderr
+                    .trim()
+                    .chars()
+                    .rev()
+                    .take(800)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect();
+                return Err(FetchError::Failed {
+                    program,
+                    status: status.to_string(),
+                    stderr: tail,
+                });
+            }
+            _ => {}
         }
         Ok(String::from_utf8_lossy(&out).into_owned())
     }
@@ -209,6 +250,20 @@ impl SourceFetcher for CliSourceFetcher {
             .map_err(PortError::new)?;
         Ok(self.map_output(&stdout))
     }
+}
+
+/// Reads stderr to the end so the child never blocks on it, keeping the first part for messages.
+async fn drain_stderr(mut stderr: tokio::process::ChildStderr) -> Vec<u8> {
+    let mut kept = Vec::new();
+    let mut chunk = [0_u8; 8 * 1024];
+    while let Ok(n) = stderr.read(&mut chunk).await {
+        if n == 0 {
+            break;
+        }
+        let room = MAX_STDERR_BYTES.saturating_sub(kept.len());
+        kept.extend_from_slice(&chunk[..n.min(room)]);
+    }
+    kept
 }
 
 pub(crate) fn compile_routes(cli: &CliSource) -> Result<Vec<Route>, regex::Error> {

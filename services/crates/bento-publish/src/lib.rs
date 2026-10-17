@@ -1,5 +1,6 @@
-//! Posts messages to Discord webhooks and Telegram bots. The webhook URL or bot token comes from
-//! the Keychain (`DESTINATION_SECRETS`, keyed by destination ID) and never appears in errors.
+//! Posts messages to Discord webhooks, Telegram bots and, through the Telegram plugin, the user's
+//! own Telegram account. The webhook URL or bot token comes from the Keychain
+//! (`DESTINATION_SECRETS`, keyed by destination ID) and never appears in errors.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -8,6 +9,7 @@ use async_trait::async_trait;
 use bento_app::{PublishError, Publisher, SecretStore};
 use bento_domain::html::truncate_chars;
 use bento_domain::{DESTINATION_SECRETS, DestinationConfig, DestinationKind, Message};
+use bento_plugin_host::protocol::{ProtocolError, ProtocolPlugin, REJECTED};
 use reqwest::{Response, StatusCode};
 use serde_json::{Value, json};
 
@@ -19,6 +21,8 @@ pub struct Publishers {
     client: reqwest::Client,
     secrets: Arc<dyn SecretStore>,
     telegram_api: String,
+    /// The Telegram plugin, which posts as the signed-in account.
+    telegram_account: Option<Arc<ProtocolPlugin>>,
 }
 
 impl Publishers {
@@ -35,7 +39,14 @@ impl Publishers {
                 .expect("HTTP client"),
             secrets,
             telegram_api: telegram_api.trim_end_matches('/').to_owned(),
+            telegram_account: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_telegram_account(mut self, plugin: Option<Arc<ProtocolPlugin>>) -> Self {
+        self.telegram_account = plugin;
+        self
     }
 
     async fn discord(&self, webhook: &str, message: &Message) -> Result<(), PublishError> {
@@ -129,6 +140,9 @@ impl Publisher for Publishers {
         destination: &DestinationConfig,
         message: &Message,
     ) -> Result<(), PublishError> {
+        if destination.kind == DestinationKind::TelegramAccount {
+            return self.telegram_account(destination, message).await;
+        }
         let secret = self
             .secrets
             .secret(DESTINATION_SECRETS, &destination.id.to_string())
@@ -151,10 +165,48 @@ impl Publisher for Publishers {
                     .ok_or_else(|| PublishError::Rejected("no chat set".into()))?;
                 self.telegram(token.trim(), chat_id, message).await
             }
-            DestinationKind::Unsupported => Err(PublishError::Rejected(
-                "this destination kind is not supported".into(),
-            )),
+            DestinationKind::TelegramAccount | DestinationKind::Unsupported => Err(
+                PublishError::Rejected("this destination kind is not supported".into()),
+            ),
         }
+    }
+}
+
+impl Publishers {
+    async fn telegram_account(
+        &self,
+        destination: &DestinationConfig,
+        message: &Message,
+    ) -> Result<(), PublishError> {
+        let plugin = self
+            .telegram_account
+            .as_ref()
+            .ok_or_else(|| PublishError::Rejected("the Telegram plugin is not installed".into()))?;
+        let chat = destination
+            .chat_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|chat| !chat.is_empty())
+            .ok_or_else(|| PublishError::Rejected("no chat set".into()))?;
+        let html = telegram_html(message, 4096);
+        let caption = telegram_html(message, 1024);
+        plugin
+            .publish(chat, &html, &caption, message.image_url.as_deref())
+            .await
+            .map_err(|error| match error {
+                ProtocolError::Timeout(_) => PublishError::TimedOut(error.to_string()),
+                ProtocolError::RateLimited(seconds) => {
+                    PublishError::RateLimited(Duration::from_secs(seconds))
+                }
+                ProtocolError::AuthRequired => {
+                    PublishError::Rejected("sign in to Telegram again in Settings → Plugins".into())
+                }
+                ProtocolError::Plugin {
+                    code: REJECTED,
+                    message,
+                } => PublishError::Rejected(message),
+                other => PublishError::Failed(other.to_string()),
+            })
     }
 }
 

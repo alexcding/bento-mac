@@ -54,10 +54,26 @@ For `qr` prompts the host polls `auth/step` after `poll_after_ms` without input;
 Keychain under the plugin's ID and passes them back in `params.secrets` on every call. Plugins never
 read or write the Keychain themselves.
 
+### `publish/send`
+
+For plugins with the `publisher` capability (the Telegram plugin posts as the signed-in account):
+
+```json
+{"method": "publish/send",
+ "params": {"chat": "me", "html": "<b>Title</b>\n\nText", "caption": "…", "image_url": null,
+            "secrets": {"session": "…"}}}
+```
+
+`html` and `caption` are Telegram-style HTML, already cut to 4096 and 1024 visible characters. With
+`image_url`, post a photo with `caption`; if the service refuses the image, post `html` alone.
+Result: `{}`. A request that times out is never retried, so send at most once per run.
+
 ## Errors
 
 Return a JSON-RPC error. Code **-32001** means the user must sign in again (an expired session); the
-app then shows the plugin's Sign In button. Any other code is shown as the source's error.
+app then shows the plugin's Sign In button. **-32002** asks the host to wait `data.retry_after`
+seconds (a flood wait). **-32003** means the request can never succeed (unknown chat, no
+permission), so it is not retried. Any other code is shown as the source's error and retried.
 
 ## Testing
 

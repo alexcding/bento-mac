@@ -1,7 +1,7 @@
 [package]
 name = "bento-plugin-telegram"
 workspace = "../../services"
-description = "Bento protocol plugin: public Telegram channels through their web preview."
+description = "Bento protocol plugin: Telegram channels (public web preview, or the user's account) and sending as the user."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -13,8 +13,11 @@ path = "src/main.rs"
 [dependencies]
 bento-domain.workspace = true
 chrono.workspace = true
+grammers-client = { version = "0.11.0", default-features = false, features = ["html"] }
+grammers-session = { version = "0.11.0", default-features = false, features = ["serde"] }
 reqwest.workspace = true
 scraper.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 

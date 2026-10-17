@@ -1,7 +1,8 @@
 //! Protocol plugins: an executable that answers one JSON-RPC 2.0 request per run. The request is
 //! written to stdin; the response is read from stdout. See `plugins/PROTOCOL.md`.
 //!
-//! Methods: `source/fetch` → `{"items": [raw item…]}`; `auth/begin` and `auth/step` → [`AuthStep`].
+//! Methods: `source/fetch` → `{"items": [raw item…]}`; `auth/begin` and `auth/step` → [`AuthStep`];
+//! `publish/send` → `{}`.
 //! Secrets travel in `params.secrets`; a plugin asks the host to store new ones with
 //! `save_secrets`. A plugin never touches the Keychain itself.
 
@@ -25,6 +26,10 @@ use crate::manifest::{Auth, Manifest};
 const MAX_RESPONSE_BYTES: u64 = 24 * 1024 * 1024;
 /// JSON-RPC error code a plugin returns when it needs the user to log in.
 pub const AUTH_REQUIRED: i64 = -32001;
+/// The service asks to wait `data.retry_after` seconds.
+pub const RATE_LIMITED: i64 = -32002;
+/// Refused for good; the same request will not succeed later.
+pub const REJECTED: i64 = -32003;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProtocolError {
@@ -38,6 +43,8 @@ pub enum ProtocolError {
     Invalid(String),
     #[error("login required: sign in to this plugin in Settings")]
     AuthRequired,
+    #[error("rate limited for {0} s")]
+    RateLimited(u64),
     #[error("{message}")]
     Plugin { code: i64, message: String },
 }
@@ -149,6 +156,25 @@ impl ProtocolPlugin {
         Ok(values)
     }
 
+    /// Sends a post to `chat`: Telegram-style HTML, or a photo with `caption` when `image_url` is
+    /// set.
+    pub async fn publish(
+        &self,
+        chat: &str,
+        html: &str,
+        caption: &str,
+        image_url: Option<&str>,
+    ) -> Result<(), ProtocolError> {
+        let params = json!({
+            "chat": chat,
+            "html": html,
+            "caption": caption,
+            "image_url": image_url,
+            "secrets": self.current_secrets()?,
+        });
+        self.call("publish/send", params).await.map(drop)
+    }
+
     #[must_use]
     pub fn plugin_id(&self) -> &str {
         &self.plugin_id
@@ -195,6 +221,10 @@ impl ProtocolPlugin {
             let code = error.get("code").and_then(Value::as_i64).unwrap_or(0);
             if code == AUTH_REQUIRED {
                 return Err(ProtocolError::AuthRequired);
+            }
+            if code == RATE_LIMITED {
+                let seconds = error.pointer("/data/retry_after").and_then(Value::as_u64);
+                return Err(ProtocolError::RateLimited(seconds.unwrap_or(60)));
             }
             let message = error
                 .get("message")

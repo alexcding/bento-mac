@@ -68,7 +68,7 @@ struct ChannelSettingsView: View {
     } footer: {
       Text(
         model.canManageDestinations
-          ? "New items from this channel's sources are posted here. Webhook URLs and bot tokens stay in this Mac's Keychain."
+          ? "New items from this channel's sources are posted here. Webhook URLs and bot tokens stay in this Mac's Keychain; posting as you uses the Telegram sign-in in Settings → Plugins."
           : "Destinations are set up on the collector Mac, which keeps their webhook URLs and bot tokens in its Keychain."
       )
     }
@@ -85,9 +85,11 @@ struct ChannelSettingsView: View {
         TextField("Name", text: $model.newDestinationName)
       }
       HStack {
-        SecureField(model.newDestinationKind.secretPrompt, text: $model.newDestinationSecret)
-        if model.newDestinationKind == .telegramBot {
-          TextField("Chat ID or @channel", text: $model.newDestinationChatID)
+        if model.newDestinationKind.needsSecret {
+          SecureField(model.newDestinationKind.secretPrompt, text: $model.newDestinationSecret)
+        }
+        if model.newDestinationKind.needsChat {
+          TextField(model.newDestinationKind.chatPrompt, text: $model.newDestinationChatID)
         }
         Button("Add") { Task { await model.addDestination() } }
           .disabled(!model.canAddDestination)
@@ -184,7 +186,7 @@ private struct DestinationRow: View {
         step: 5
       )
       .font(.caption)
-      if canManage {
+      if canManage, destination.kind.needsSecret {
         HStack {
           SecureField("New \(destination.kind.secretPrompt.lowercased())", text: $newSecret)
           Button("Replace") {

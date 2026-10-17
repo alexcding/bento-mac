@@ -261,7 +261,16 @@ async fn run(
     let mut config_file = ConfigFile::new(data_dir.join("collector-config.json"));
     let mut config = CollectorConfig::default();
     let (stop_delivery, delivery_stopped) = tokio::sync::watch::channel(false);
-    let delivery = deliver::spawn(data_dir, store.clone(), secrets.clone(), delivery_stopped);
+    let telegram_account = registry
+        .plugin("telegram")
+        .and_then(|plugin| plugin.protocol.clone());
+    let delivery = deliver::spawn(
+        data_dir,
+        store.clone(),
+        secrets.clone(),
+        telegram_account,
+        delivery_stopped,
+    );
     let shutdown = shutdown_signal();
     tokio::pin!(shutdown);
     loop {

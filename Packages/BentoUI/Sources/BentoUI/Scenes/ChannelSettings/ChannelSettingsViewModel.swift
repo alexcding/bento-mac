@@ -137,28 +137,32 @@ public final class ChannelSettingsViewModel: Identifiable {
 
   var canAddDestination: Bool {
     let filled = { (text: String) in !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    return canManageDestinations && filled(newDestinationSecret)
-      && (newDestinationKind != .telegramBot || filled(newDestinationChatID))
+    let kind = newDestinationKind
+    return canManageDestinations && (!kind.needsSecret || filled(newDestinationSecret))
+      && (!kind.needsChat || filled(newDestinationChatID))
   }
 
   /// Saves the secret first, so a destination never exists without one.
   func addDestination() async {
     guard let collector, canAddDestination else { return }
     let id = UUID()
+    let kind = newDestinationKind
     let name = newDestinationName.trimmingCharacters(in: .whitespacesAndNewlines)
     let chatID = newDestinationChatID.trimmingCharacters(in: .whitespacesAndNewlines)
     do {
-      try await collector.setSecret(
-        pluginID: Destination.secretNamespace,
-        key: id.uuidString.lowercased(),
-        value: newDestinationSecret.trimmingCharacters(in: .whitespacesAndNewlines)
-      )
+      if kind.needsSecret {
+        try await collector.setSecret(
+          pluginID: Destination.secretNamespace,
+          key: id.uuidString.lowercased(),
+          value: newDestinationSecret.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+      }
       try store.addDestination(
         id: id,
         channelID: channelID,
-        kind: newDestinationKind,
-        name: name.isEmpty ? newDestinationKind.label : name,
-        chatID: newDestinationKind == .telegramBot ? chatID : nil
+        kind: kind,
+        name: name.isEmpty ? kind.label : name,
+        chatID: kind.needsChat ? chatID : nil
       )
       newDestinationName = ""
       newDestinationSecret = ""
@@ -186,6 +190,7 @@ public final class ChannelSettingsViewModel: Identifiable {
 
   func delete(_ destination: Destination) async {
     withErrorReporting { try store.deleteDestination(destination.id) }
+    guard destination.kind.needsSecret else { return }
     try? await collector?.deleteSecret(pluginID: Destination.secretNamespace, key: destination.secretKey)
   }
 
@@ -196,14 +201,17 @@ public final class ChannelSettingsViewModel: Identifiable {
 }
 
 extension Destination.Kind {
-  /// Kinds that can be added. Telegram as your account comes with its sign-in.
-  static let addable: [Self] = [.discord, .telegramBot]
+  static let addable: [Self] = [.discord, .telegramBot, .telegramAccount]
+
+  /// A webhook URL or bot token; a Telegram account uses the Telegram plugin's sign-in instead.
+  var needsSecret: Bool { self != .telegramAccount }
+  var needsChat: Bool { self != .discord }
 
   var label: String {
     switch self {
     case .discord: "Discord"
     case .telegramBot: "Telegram bot"
-    case .telegramAccount: "Telegram account"
+    case .telegramAccount: "Telegram (as you)"
     }
   }
 
@@ -212,7 +220,11 @@ extension Destination.Kind {
     switch self {
     case .discord: "Webhook URL"
     case .telegramBot: "Bot token"
-    case .telegramAccount: "Session"
+    case .telegramAccount: ""
     }
+  }
+
+  var chatPrompt: String {
+    self == .telegramAccount ? "me, @channel or t.me/c/<id>" : "Chat ID or @channel"
   }
 }

@@ -188,12 +188,12 @@ impl DeliveryStore for SqliteStore {
         .map_err(PortError::new)
     }
 
-    fn telegram_paused_until(&self) -> Result<Option<DateTime<Utc>>, PortError> {
+    fn paused_until(&self, scope: &str) -> Result<Option<DateTime<Utc>>, PortError> {
         let millis: Option<String> = self
             .connection()
             .query_row(
-                "SELECT value FROM meta WHERE key = 'telegram_paused_until'",
-                [],
+                "SELECT value FROM meta WHERE key = 'paused_until.' || ?1",
+                [scope],
                 |row| row.get(0),
             )
             .optional()
@@ -203,11 +203,11 @@ impl DeliveryStore for SqliteStore {
             .and_then(DateTime::from_timestamp_millis))
     }
 
-    fn pause_telegram(&self, until: DateTime<Utc>) -> Result<(), PortError> {
+    fn pause(&self, scope: &str, until: DateTime<Utc>) -> Result<(), PortError> {
         self.execute(
-            "INSERT INTO meta (key, value) VALUES ('telegram_paused_until', ?1)
+            "INSERT INTO meta (key, value) VALUES ('paused_until.' || ?1, ?2)
              ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-            [until.timestamp_millis().to_string()],
+            [scope.to_owned(), until.timestamp_millis().to_string()],
         )
         .map_err(PortError::new)
     }
@@ -338,11 +338,12 @@ mod tests {
         );
 
         let until = now + chrono::Duration::seconds(60);
-        assert_eq!(store.telegram_paused_until().unwrap(), None);
-        store.pause_telegram(until).unwrap();
+        assert_eq!(store.paused_until("telegram_bot").unwrap(), None);
+        store.pause("telegram_bot", until).unwrap();
+        assert_eq!(store.paused_until("telegram_account").unwrap(), None);
         assert_eq!(
             store
-                .telegram_paused_until()
+                .paused_until("telegram_bot")
                 .unwrap()
                 .map(|at| at.timestamp_millis()),
             Some(until.timestamp_millis())

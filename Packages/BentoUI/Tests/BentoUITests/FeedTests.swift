@@ -273,6 +273,19 @@ struct DestinationSettingsTests {
     #expect(model.newDestinationSecret.isEmpty && model.newDestinationChatID.isEmpty)
   }
 
+  @Test func aTelegramAccountNeedsOnlyAChat() async {
+    let collector = FakeCollector(plugins: [])
+    let model = model(collector)
+    model.newDestinationKind = .telegramAccount
+    #expect(!model.canAddDestination)
+    model.newDestinationChatID = "me"
+
+    await model.addDestination()
+
+    #expect(collector.calls.isEmpty, "no secret: it uses the Telegram sign-in")
+    #expect(store.calls == ["addDestination(telegramAccount,Telegram (as you),me)"])
+  }
+
   @Test func onlyTheCollectorMacSetsUpDestinations() async {
     let collector = FakeCollector(plugins: [])
     collector.isThisMacCollector = false

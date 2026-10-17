@@ -7,7 +7,8 @@ use crate::html::truncate_chars;
 use crate::item::{FeedItem, MediaKind};
 
 /// Keychain namespace for destination secrets: the key is the destination ID (lowercase) and the
-/// value is the Discord webhook URL or the Telegram bot token.
+/// value is the Discord webhook URL or the Telegram bot token. Telegram account destinations use
+/// the Telegram plugin's sign-in instead.
 pub const DESTINATION_SECRETS: &str = "destination";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -15,7 +16,8 @@ pub struct DestinationConfig {
     pub id: Uuid,
     pub kind: DestinationKind,
     pub name: String,
-    /// Telegram chat: a numeric ID or `@channel`. Unused for Discord.
+    /// Telegram chat: a numeric ID or `@channel` for a bot; `me`, `@name` or `t.me/c/<id>` for an
+    /// account. Unused for Discord.
     #[serde(default)]
     pub chat_id: Option<String>,
     /// Minimum time between two posts to this destination.
@@ -31,9 +33,24 @@ pub struct DestinationConfig {
 pub enum DestinationKind {
     Discord,
     TelegramBot,
+    /// Posts as the user's own Telegram account, through the Telegram plugin.
+    TelegramAccount,
     /// A kind this daemon cannot post to yet. Its destinations are ignored.
     #[serde(other)]
     Unsupported,
+}
+
+impl DestinationKind {
+    /// A flood wait on one destination pauses every destination sharing the limit: all bot
+    /// destinations (one bot token in practice) or all account destinations.
+    #[must_use]
+    pub fn shared_limit(self) -> Option<&'static str> {
+        match self {
+            Self::TelegramBot => Some("telegram_bot"),
+            Self::TelegramAccount => Some("telegram_account"),
+            Self::Discord | Self::Unsupported => None,
+        }
+    }
 }
 
 /// What is posted for one item, independent of the destination's format.
@@ -169,7 +186,9 @@ mod tests {
 
     #[test]
     fn unknown_kinds_parse_as_unsupported() {
-        let kind: DestinationKind = serde_json::from_str(r#""telegram_account""#).unwrap();
+        let kind: DestinationKind = serde_json::from_str(r#""x""#).unwrap();
         assert_eq!(kind, DestinationKind::Unsupported);
+        let kind: DestinationKind = serde_json::from_str(r#""telegram_account""#).unwrap();
+        assert_eq!(kind, DestinationKind::TelegramAccount);
     }
 }

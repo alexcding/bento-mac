@@ -1,7 +1,7 @@
 //! Posts new items to their channel's destinations: queues a delivery per destination for each
 //! new outbox item, then sends them one at a time per destination, spaced by its post delay.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use bento_domain::{CollectorConfig, DestinationKind, Message};
@@ -91,7 +91,7 @@ impl<S: DeliveryStore, C: Clock> Deliverer<S, C> {
         keep_going: &(dyn Fn() -> bool + Sync),
     ) -> Result<Vec<SendReport>, PortError> {
         let mut reports = Vec::new();
-        let mut telegram_paused_until = self.store.telegram_paused_until()?;
+        let mut pauses = HashMap::new();
         for delivery in self.store.next_deliveries()? {
             let now = self.clock.now();
             let destination = config
@@ -108,9 +108,17 @@ impl<S: DeliveryStore, C: Clock> Deliverer<S, C> {
                 .store
                 .last_sent_at(destination.id)?
                 .is_none_or(|last| now >= last + delay);
-            let telegram = destination.kind == DestinationKind::TelegramBot;
-            let paused = telegram && telegram_paused_until.is_some_and(|until| now < until);
-            if delivery.next_attempt_at > now || !spaced || paused {
+            let scope = destination.kind.shared_limit();
+            let limited = match scope {
+                Some(scope) => {
+                    if !pauses.contains_key(scope) {
+                        pauses.insert(scope, self.store.paused_until(scope)?);
+                    }
+                    pauses[scope].is_some_and(|until| now < until)
+                }
+                None => false,
+            };
+            if delivery.next_attempt_at > now || !spaced || limited {
                 continue;
             }
             if !keep_going() {
@@ -132,12 +140,12 @@ impl<S: DeliveryStore, C: Clock> Deliverer<S, C> {
                 failed_attempt: false,
                 ..
             } = &outcome
-                && telegram
+                && let Some(scope) = scope
             {
-                // A flood wait applies to the bot, so every Telegram destination waits, including
-                // for posts queued later.
-                self.store.pause_telegram(*at)?;
-                telegram_paused_until = Some(*at);
+                // A flood wait applies to the bot or account, so every destination sharing it
+                // waits, including for posts queued later.
+                self.store.pause(scope, *at)?;
+                pauses.insert(scope, Some(*at));
             }
             reports.push(SendReport {
                 delivery_id: delivery.id,
@@ -207,7 +215,7 @@ mod tests {
         cursor: Mutex<i64>,
         queue: Mutex<Vec<(i64, Uuid, Uuid, DeliveryOutcomeState)>>,
         sent_at: Mutex<Vec<(Uuid, DateTime<Utc>)>>,
-        telegram_pause: Mutex<Option<DateTime<Utc>>>,
+        pauses: Mutex<HashMap<String, DateTime<Utc>>>,
     }
 
     #[derive(Clone, Debug, PartialEq)]
@@ -283,11 +291,11 @@ mod tests {
         fn fail_interrupted_deliveries(&self, _: &str) -> Result<(), PortError> {
             Ok(())
         }
-        fn telegram_paused_until(&self) -> Result<Option<DateTime<Utc>>, PortError> {
-            Ok(*self.telegram_pause.lock().unwrap())
+        fn paused_until(&self, scope: &str) -> Result<Option<DateTime<Utc>>, PortError> {
+            Ok(self.pauses.lock().unwrap().get(scope).copied())
         }
-        fn pause_telegram(&self, until: DateTime<Utc>) -> Result<(), PortError> {
-            *self.telegram_pause.lock().unwrap() = Some(until);
+        fn pause(&self, scope: &str, until: DateTime<Utc>) -> Result<(), PortError> {
+            self.pauses.lock().unwrap().insert(scope.to_owned(), until);
             Ok(())
         }
         fn last_sent_at(&self, destination: Uuid) -> Result<Option<DateTime<Utc>>, PortError> {

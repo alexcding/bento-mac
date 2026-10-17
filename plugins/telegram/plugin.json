@@ -4,12 +4,22 @@
   "version": "0.1.0",
   "protocol": 1,
   "capabilities": [
-    "source"
+    "source",
+    "publisher",
+    "auth"
   ],
-  "description": "Posts from public Telegram channels, read from their public web preview (t.me/s). No login needed.",
+  "description": "Telegram channels: public ones through their web preview with no login; private ones (t.me/c/…) and posting as you after signing in with your account.",
+  "auth": {
+    "kind": "interactive",
+    "secrets": [
+      "api_id",
+      "api_hash",
+      "session"
+    ]
+  },
   "source": {
     "default_interval_minutes": 10,
-    "query_hint": "@channel or t.me/channel",
+    "query_hint": "@channel, t.me/channel, or t.me/c/<id> when signed in",
     "protocol": {
       "executable": "bento-plugin-telegram",
       "timeout_seconds": 45

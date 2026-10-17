@@ -594,3 +594,25 @@ async fn protocol_oversized_response_fails_fast() {
         "not the 10 s timeout"
     );
 }
+
+#[tokio::test]
+async fn protocol_publish_sends_the_post_and_reports_flood_waits() {
+    let (_dir, registry) = protocol_plugin(
+        r#""method":"publish/send","params":{"caption":"c","chat":"me","html":"<b>h</b>","image_url":null,"secrets":{"session":"abc"}}"#,
+        r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32002,"message":"wait","data":{"retry_after":42}}}"#,
+    );
+    let plugin = registry.plugin("proto").unwrap().protocol.clone().unwrap();
+
+    let error = plugin
+        .publish("me", "<b>h</b>", "c", None)
+        .await
+        .unwrap_err();
+
+    assert!(
+        matches!(
+            error,
+            bento_plugin_host::protocol::ProtocolError::RateLimited(42)
+        ),
+        "{error}"
+    );
+}

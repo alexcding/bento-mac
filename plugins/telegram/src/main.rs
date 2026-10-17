@@ -1,6 +1,9 @@
-//! Bento protocol plugin for public Telegram channels. `source/fetch` reads the channel's public
-//! web preview (`https://t.me/s/<channel>`), which needs no login and links images on Telegram's
-//! CDN. Account login (private channels, sending) is a later addition.
+//! Bento protocol plugin for Telegram. `source/fetch` reads a public channel's web preview
+//! (`https://t.me/s/<channel>`), which needs no login and links images on Telegram's CDN. With
+//! the user's account signed in (`auth/begin`, `auth/step`), it also reads private channels
+//! (`t.me/c/<id>`) and sends posts as the user (`publish/send`); see `account`.
+
+mod account;
 
 use std::io::Read;
 
@@ -16,45 +19,107 @@ const MAX_LIMIT: usize = 20;
 async fn main() {
     let mut input = String::new();
     let response = match std::io::stdin().read_to_string(&mut input) {
-        Ok(_) => handle(&input, "https://t.me").await,
-        Err(error) => error_response(&Value::Null, -32000, &error.to_string()),
+        Ok(_) => Box::pin(handle(&input, "https://t.me")).await,
+        Err(error) => error_response(&Value::Null, &Failure::other(error.to_string())),
     };
     println!("{response}");
 }
 
-async fn handle(input: &str, base_url: &str) -> Value {
-    let Ok(request) = serde_json::from_str::<Value>(input) else {
-        return error_response(&Value::Null, -32700, "parse error");
-    };
-    let id = request.get("id").cloned().unwrap_or(Value::Null);
-    let params = request.get("params").cloned().unwrap_or_else(|| json!({}));
-    match request.get("method").and_then(Value::as_str) {
-        Some("source/fetch") => match fetch(base_url, &params).await {
-            Ok(items) => json!({"jsonrpc": "2.0", "id": id, "result": {"items": items}}),
-            Err(message) => error_response(&id, -32000, &message),
-        },
-        Some(other) => error_response(&id, -32601, &format!("unknown method {other}")),
-        None => error_response(&id, -32600, "missing method"),
+/// JSON-RPC error code the host treats as "sign in again".
+pub const AUTH_REQUIRED: i64 = -32001;
+/// Wait `data.retry_after` seconds, then try again (a flood wait).
+pub const RATE_LIMITED: i64 = -32002;
+/// Refused for good: retrying the same request cannot succeed.
+pub const REJECTED: i64 = -32003;
+
+/// A failed request: a JSON-RPC error code, its message and, for flood waits, how long to wait.
+#[derive(Debug)]
+pub struct Failure {
+    pub code: i64,
+    pub message: String,
+    pub retry_after: Option<u64>,
+}
+
+impl Failure {
+    fn new(code: i64, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            retry_after: None,
+        }
+    }
+
+    fn auth(message: impl Into<String>) -> Self {
+        Self::new(AUTH_REQUIRED, message)
+    }
+
+    fn rejected(message: impl Into<String>) -> Self {
+        Self::new(REJECTED, message)
+    }
+
+    fn other(message: impl Into<String>) -> Self {
+        Self::new(-32000, message)
+    }
+
+    fn rate_limited(seconds: u64) -> Self {
+        Self {
+            retry_after: Some(seconds),
+            ..Self::new(RATE_LIMITED, format!("Telegram asks to wait {seconds}s"))
+        }
     }
 }
 
-fn error_response(id: &Value, code: i64, message: &str) -> Value {
-    json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})
+async fn handle(input: &str, base_url: &str) -> Value {
+    let Ok(request) = serde_json::from_str::<Value>(input) else {
+        return error_response(&Value::Null, &Failure::new(-32700, "parse error"));
+    };
+    let id = request.get("id").cloned().unwrap_or(Value::Null);
+    let params = request.get("params").cloned().unwrap_or_else(|| json!({}));
+    let result = match request.get("method").and_then(Value::as_str) {
+        Some("source/fetch") => fetch(base_url, &params)
+            .await
+            .map(|items| json!({"items": items})),
+        Some("auth/begin") => account::auth_begin(&params),
+        Some("auth/step") => account::auth_step(&params).await,
+        Some("publish/send") => account::send(&params).await,
+        Some(other) => Err(Failure::new(-32601, format!("unknown method {other}"))),
+        None => Err(Failure::new(-32600, "missing method")),
+    };
+    match result {
+        Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
+        Err(failure) => error_response(&id, &failure),
+    }
 }
 
-async fn fetch(base_url: &str, params: &Value) -> Result<Vec<RawItem>, String> {
+fn error_response(id: &Value, failure: &Failure) -> Value {
+    let mut error = json!({"code": failure.code, "message": failure.message});
+    if let Some(seconds) = failure.retry_after {
+        error["data"] = json!({"retry_after": seconds});
+    }
+    json!({"jsonrpc": "2.0", "id": id, "error": error})
+}
+
+async fn fetch(base_url: &str, params: &Value) -> Result<Vec<RawItem>, Failure> {
     let query = params
         .get("query")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    let channel = channel_name(query)
-        .ok_or_else(|| format!("`{query}` is not a public channel name or t.me link"))?;
     let limit = params
         .pointer("/settings/limit")
         .and_then(Value::as_u64)
         .and_then(|n| usize::try_from(n).ok())
         .unwrap_or(MAX_LIMIT)
         .clamp(1, MAX_LIMIT);
+    if let Some(chat) = account::ChatRef::parse(query).filter(account::ChatRef::is_private) {
+        return account::fetch(params, &chat, limit).await;
+    }
+    scrape(base_url, query, limit).await.map_err(Failure::other)
+}
+
+/// A public channel's newest posts from its web preview.
+async fn scrape(base_url: &str, query: &str, limit: usize) -> Result<Vec<RawItem>, String> {
+    let channel = channel_name(query)
+        .ok_or_else(|| format!("`{query}` is not a public channel name or t.me link"))?;
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Macintosh) Bento/0.1")
         .timeout(std::time::Duration::from_secs(30))
@@ -350,6 +415,10 @@ mod tests {
         let error = fetch(&server.uri(), &json!({"query": "privatechan"}))
             .await
             .unwrap_err();
-        assert!(error.contains("no public preview"), "{error}");
+        assert!(
+            error.message.contains("no public preview"),
+            "{}",
+            error.message
+        );
     }
 }

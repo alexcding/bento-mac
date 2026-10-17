@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use bento_app::{Deliverer, DeliveryOutcome, SecretStore, SystemClock};
 use bento_domain::CollectorConfig;
+use bento_plugin_host::protocol::ProtocolPlugin;
 use bento_publish::{Publishers, TELEGRAM_API};
 use bento_store_sqlite::SqliteStore;
 use tokio::sync::watch;
@@ -23,10 +24,14 @@ pub fn spawn(
     data_dir: &Path,
     store: Arc<SqliteStore>,
     secrets: Arc<dyn SecretStore>,
+    telegram_account: Option<Arc<ProtocolPlugin>>,
     mut shutdown: watch::Receiver<bool>,
 ) -> JoinHandle<()> {
     let mut config_file = ConfigFile::new(data_dir.join("collector-config.json"));
-    let publishers = Arc::new(Publishers::new(secrets, TELEGRAM_API, SEND_TIMEOUT));
+    let publishers = Arc::new(
+        Publishers::new(secrets, TELEGRAM_API, SEND_TIMEOUT)
+            .with_telegram_account(telegram_account),
+    );
     tokio::spawn(async move {
         let deliverer = match Deliverer::new(store, publishers, SystemClock) {
             Ok(deliverer) => deliverer,

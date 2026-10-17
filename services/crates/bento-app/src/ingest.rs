@@ -17,6 +17,8 @@ pub struct IngestReport {
     pub too_old: usize,
     /// New entries appended to the outbox, including referenced items.
     pub written: usize,
+    /// New items marked as seen instead of stored (a skipped initial backlog).
+    pub backlog_skipped: usize,
 }
 
 /// New items from one fetch, ready for enrichment.
@@ -95,6 +97,15 @@ impl<O: Outbox, C: Clock> Ingestor<O, C> {
         }
     }
 
+    /// Marks items as seen without storing them. Returns how many.
+    pub fn skip(&self, items: &[NormalizedItem]) -> Result<usize, PortError> {
+        let ids: Vec<Uuid> = items.iter().map(|n| n.item.id).collect();
+        if !ids.is_empty() {
+            self.outbox.mark_seen(&ids)?;
+        }
+        Ok(ids.len())
+    }
+
     /// `prepare` then `append`, without enrichment.
     pub fn ingest(
         &self,
@@ -108,6 +119,7 @@ impl<O: Outbox, C: Clock> Ingestor<O, C> {
             fetched: prepared.fetched,
             too_old: prepared.too_old,
             written,
+            backlog_skipped: 0,
         })
     }
 }
@@ -154,6 +166,11 @@ pub(crate) mod tests {
             }
             Ok(appended)
         }
+
+        fn mark_seen(&self, ids: &[Uuid]) -> Result<(), PortError> {
+            self.seen.borrow_mut().extend(ids);
+            Ok(())
+        }
     }
 
     pub(crate) struct FixedClock(pub(crate) RefCell<DateTime<Utc>>);
@@ -199,7 +216,8 @@ pub(crate) mod tests {
             IngestReport {
                 fetched: 1,
                 too_old: 0,
-                written: 1
+                written: 1,
+                backlog_skipped: 0,
             }
         );
         let entries = outbox.entries.borrow();
@@ -253,7 +271,8 @@ pub(crate) mod tests {
             IngestReport {
                 fetched: 3,
                 too_old: 1,
-                written: 2
+                written: 2,
+                backlog_skipped: 0,
             }
         );
     }

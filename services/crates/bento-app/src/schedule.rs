@@ -4,11 +4,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use bento_domain::{CollectorConfig, SourceConfig};
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Datelike, Duration, Utc};
 use uuid::Uuid;
 
 use crate::enrich::{EnrichReport, Enricher};
-use crate::ingest::{IngestReport, Ingestor};
+use crate::ingest::{IngestReport, Ingestor, Prepared};
 use crate::ports::{
     Clock, Outbox, PortError, RunRecord, SourceFetcher, SourceState, SourceStateStore,
 };
@@ -54,8 +54,12 @@ impl<S: SourceStateStore, O: Outbox, C: Clock> Scheduler<S, O, C> {
         self
     }
 
-    /// Runs every enabled source whose next run is due, one at a time.
+    /// Runs every enabled source whose next run is due, one at a time. Nothing runs on weekends
+    /// when the config says so.
     pub async fn run_due(&self, config: &CollectorConfig) -> Result<Vec<RunReport>, PortError> {
+        if config.skip_weekends && is_weekend(self.clock.now(), config.utc_offset_minutes) {
+            return Ok(Vec::new());
+        }
         let mut reports = Vec::new();
         for source in config.sources.iter().filter(|s| s.enabled) {
             let state = self.states.source_state(source.id)?;
@@ -65,56 +69,118 @@ impl<S: SourceStateStore, O: Outbox, C: Clock> Scheduler<S, O, C> {
             {
                 continue;
             }
-            let started_at = self.clock.now();
-            let timer = std::time::Instant::now();
-            let mut enrich = EnrichReport::default();
-            let outcome = self.run(source, config, &mut enrich).await;
-            let duration_ms = u64::try_from(timer.elapsed().as_millis()).unwrap_or(u64::MAX);
-            self.states
-                .record_run(&run_record(source.id, started_at, duration_ms, &outcome))?;
-            self.states.save_source_state(&next_state(
-                source,
-                state,
-                &outcome,
-                self.clock.now(),
-            ))?;
-            reports.push(RunReport {
-                source_id: source.id,
-                outcome,
-                enrich,
-            });
+            reports.push(self.run_and_record(source, config, state).await?);
         }
         Ok(reports)
+    }
+
+    /// Runs one source now, whatever its schedule (enabled or not), and records the result.
+    pub async fn run_now(
+        &self,
+        source: &SourceConfig,
+        config: &CollectorConfig,
+    ) -> Result<RunReport, PortError> {
+        let state = self.states.source_state(source.id)?;
+        self.run_and_record(source, config, state).await
+    }
+
+    /// Fetches, filters and enriches one source without storing anything or touching its
+    /// schedule: a preview of what the next run would add.
+    pub async fn dry_run(
+        &self,
+        source: &SourceConfig,
+        config: &CollectorConfig,
+    ) -> Result<(Prepared, EnrichReport), PortError> {
+        let mut prepared = self.fetch_prepared(source, config).await?;
+        let enrich = self.enrich(source, config, &mut prepared).await;
+        Ok((prepared, enrich))
+    }
+
+    async fn run_and_record(
+        &self,
+        source: &SourceConfig,
+        config: &CollectorConfig,
+        state: Option<SourceState>,
+    ) -> Result<RunReport, PortError> {
+        let started_at = self.clock.now();
+        let timer = std::time::Instant::now();
+        let mut enrich = EnrichReport::default();
+        let outcome = self.run(source, config, state.is_none(), &mut enrich).await;
+        let duration_ms = u64::try_from(timer.elapsed().as_millis()).unwrap_or(u64::MAX);
+        self.states
+            .record_run(&run_record(source.id, started_at, duration_ms, &outcome))?;
+        self.states
+            .save_source_state(&next_state(source, state, &outcome, self.clock.now()))?;
+        Ok(RunReport {
+            source_id: source.id,
+            outcome,
+            enrich,
+        })
     }
 
     async fn run(
         &self,
         source: &SourceConfig,
         config: &CollectorConfig,
+        first_run: bool,
         enrich: &mut EnrichReport,
     ) -> Result<IngestReport, PortError> {
+        let mut prepared = self.fetch_prepared(source, config).await?;
+        let ingestor = Ingestor::new(&self.outbox, &self.clock);
+        if first_run && source.skip_initial_backlog {
+            let backlog_skipped = ingestor.skip(&prepared.items)?;
+            return Ok(IngestReport {
+                fetched: prepared.fetched,
+                too_old: prepared.too_old,
+                written: 0,
+                backlog_skipped,
+            });
+        }
+        *enrich = self.enrich(source, config, &mut prepared).await;
+        let written = ingestor.append(prepared.items)?;
+        Ok(IngestReport {
+            fetched: prepared.fetched,
+            too_old: prepared.too_old,
+            written,
+            backlog_skipped: 0,
+        })
+    }
+
+    async fn fetch_prepared(
+        &self,
+        source: &SourceConfig,
+        config: &CollectorConfig,
+    ) -> Result<Prepared, PortError> {
         let fetcher = self
             .fetchers
             .get(&source.plugin_id)
             .ok_or_else(|| PortError::msg(format!("no plugin named '{}'", source.plugin_id)))?;
         let items = fetcher.fetch(source).await?;
         let max_age = Duration::hours(i64::from(config.max_item_age_hours));
-        let ingestor = Ingestor::new(&self.outbox, &self.clock);
-        let mut prepared = ingestor.prepare(source.id, items, max_age)?;
-        if let Some(enricher) = &self.enricher
-            && !prepared.items.is_empty()
-        {
-            *enrich = enricher
-                .enrich(source, &config.ai, &mut prepared.items)
-                .await;
-        }
-        let written = ingestor.append(prepared.items)?;
-        Ok(IngestReport {
-            fetched: prepared.fetched,
-            too_old: prepared.too_old,
-            written,
-        })
+        Ingestor::new(&self.outbox, &self.clock).prepare(source.id, items, max_age)
     }
+
+    async fn enrich(
+        &self,
+        source: &SourceConfig,
+        config: &CollectorConfig,
+        prepared: &mut Prepared,
+    ) -> EnrichReport {
+        match &self.enricher {
+            Some(enricher) if !prepared.items.is_empty() => {
+                enricher
+                    .enrich(source, &config.ai, &mut prepared.items)
+                    .await
+            }
+            _ => EnrichReport::default(),
+        }
+    }
+}
+
+/// Saturday or Sunday at `utc_offset_minutes` from UTC.
+fn is_weekend(now: DateTime<Utc>, utc_offset_minutes: i32) -> bool {
+    let local = now + Duration::minutes(i64::from(utc_offset_minutes));
+    matches!(local.weekday(), chrono::Weekday::Sat | chrono::Weekday::Sun)
 }
 
 /// Due at `next_run_at`, or sooner when the interval was shortened since the last run: the wait
@@ -260,6 +326,7 @@ mod tests {
             summarize: false,
             fetch_detail: false,
             ai_tasks: Vec::new(),
+            skip_initial_backlog: false,
         }
     }
 
@@ -354,6 +421,79 @@ mod tests {
         block_on(scheduler.run_due(&config(vec![slow]))).unwrap();
 
         assert_eq!(fetcher.calls(), calls + 1);
+    }
+
+    #[test]
+    fn skips_weekends_in_the_configured_time_zone() {
+        let fetcher = FakeFetcher::new(vec![Ok(items(&["a"]))]);
+        let (states, outbox) = (FakeStates::default(), FakeOutbox::default());
+        // Friday 2026-10-16 23:00 UTC is Saturday 07:00 at UTC+8.
+        let clock = FixedClock::at(23);
+        let scheduler = Scheduler::new(registry(fetcher.clone()), &states, &outbox, &clock);
+        let mut cfg = config(vec![source(1, "rss", true)]);
+        cfg.skip_weekends = true;
+
+        cfg.utc_offset_minutes = 8 * 60;
+        assert!(block_on(scheduler.run_due(&cfg)).unwrap().is_empty());
+        cfg.utc_offset_minutes = 0;
+        assert_eq!(
+            block_on(scheduler.run_due(&cfg)).unwrap().len(),
+            1,
+            "still Friday in UTC"
+        );
+    }
+
+    #[test]
+    fn skips_the_initial_backlog_then_collects_new_items() {
+        let fetcher = FakeFetcher::new(vec![
+            Ok(items(&["old1", "old2"])),
+            Ok(items(&["old1", "new"])),
+        ]);
+        let (states, outbox, clock) = (
+            FakeStates::default(),
+            FakeOutbox::default(),
+            FixedClock::at(9),
+        );
+        let scheduler = Scheduler::new(registry(fetcher), &states, &outbox, &clock);
+        let mut skipping = source(1, "rss", true);
+        skipping.skip_initial_backlog = true;
+        let cfg = config(vec![skipping]);
+
+        let first = block_on(scheduler.run_due(&cfg)).unwrap();
+        assert_eq!(first[0].outcome.as_ref().unwrap().backlog_skipped, 2);
+        assert!(outbox.entries.borrow().is_empty());
+
+        *clock.0.borrow_mut() += Duration::minutes(30);
+        let second = block_on(scheduler.run_due(&cfg)).unwrap();
+        assert_eq!(second[0].outcome.as_ref().unwrap().written, 1);
+        assert_eq!(outbox.entries.borrow()[0].item.external_id, "new");
+    }
+
+    #[test]
+    fn run_now_ignores_the_schedule_and_dry_run_stores_nothing() {
+        let fetcher = FakeFetcher::new(vec![
+            Ok(items(&["a"])),
+            Ok(items(&["b"])),
+            Ok(items(&["c"])),
+        ]);
+        let (states, outbox, clock) = (
+            FakeStates::default(),
+            FakeOutbox::default(),
+            FixedClock::at(9),
+        );
+        let scheduler = Scheduler::new(registry(fetcher), &states, &outbox, &clock);
+        let src = source(1, "rss", true);
+        let cfg = config(vec![src.clone()]);
+        block_on(scheduler.run_due(&cfg)).unwrap();
+
+        let now = block_on(scheduler.run_now(&src, &cfg)).unwrap();
+        assert_eq!(now.outcome.unwrap().written, 1, "not due, ran anyway");
+
+        let runs_before = states.1.borrow().len();
+        let (preview, _) = block_on(scheduler.dry_run(&src, &cfg)).unwrap();
+        assert_eq!(preview.items[0].item.external_id, "c");
+        assert_eq!(outbox.entries.borrow().len(), 2, "dry run stored nothing");
+        assert_eq!(states.1.borrow().len(), runs_before, "and recorded no run");
     }
 
     #[test]

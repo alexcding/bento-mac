@@ -37,6 +37,8 @@ pub trait Outbox {
     /// Appends, atomically and in order, the entries whose item IDs were never appended before.
     /// Returns how many were appended.
     fn append_new(&self, entries: &[OutboxEntry]) -> Result<usize, PortError>;
+    /// Marks items as already sent without appending them (skipping a source's backlog).
+    fn mark_seen(&self, ids: &[Uuid]) -> Result<(), PortError>;
 }
 
 pub trait Clock {
@@ -151,6 +153,10 @@ impl<T: Outbox + ?Sized> Outbox for &T {
 
     fn append_new(&self, entries: &[OutboxEntry]) -> Result<usize, PortError> {
         (**self).append_new(entries)
+    }
+
+    fn mark_seen(&self, ids: &[Uuid]) -> Result<(), PortError> {
+        (**self).mark_seen(ids)
     }
 }
 

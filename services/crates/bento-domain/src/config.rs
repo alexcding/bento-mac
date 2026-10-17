@@ -16,6 +16,12 @@ pub struct CollectorConfig {
     pub sources: Vec<SourceConfig>,
     #[serde(default)]
     pub ai: AiConfig,
+    /// No source runs on Saturdays and Sundays (in the app's time zone).
+    #[serde(default)]
+    pub skip_weekends: bool,
+    /// The app's UTC offset, for `skip_weekends`.
+    #[serde(default)]
+    pub utc_offset_minutes: i32,
 }
 
 impl Default for CollectorConfig {
@@ -25,6 +31,8 @@ impl Default for CollectorConfig {
             max_item_age_hours: default_max_item_age_hours(),
             sources: Vec::new(),
             ai: AiConfig::default(),
+            skip_weekends: false,
+            utc_offset_minutes: 0,
         }
     }
 }
@@ -55,6 +63,9 @@ pub struct SourceConfig {
     /// AI task IDs run on this source's new items, in order, after `translate` and `summarize`.
     #[serde(default)]
     pub ai_tasks: Vec<String>,
+    /// On the first fetch, mark what the source already has as seen instead of storing it.
+    #[serde(default)]
+    pub skip_initial_backlog: bool,
 }
 
 impl SourceConfig {

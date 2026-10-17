@@ -59,7 +59,15 @@ enum Command {
     /// Run as a daemon until stopped (default). Logs to collector.log in the data directory.
     Run,
     /// Run every due source once, then exit. Logs to stderr.
-    RunOnce,
+    ///
+    /// With `--source`, run only that source now, due or not, and print a JSON summary on stdout;
+    /// with `--dry-run` as well, print the items it would add without storing anything.
+    RunOnce {
+        #[arg(long)]
+        source: Option<Uuid>,
+        #[arg(long, requires = "source")]
+        dry_run: bool,
+    },
     /// Write one test item to the outbox, to check the path into the app and iCloud.
     EmitTestItem {
         #[arg(long, default_value = "Hello from bento-collector")]
@@ -117,7 +125,7 @@ async fn main() -> Result<()> {
     std::fs::create_dir_all(&data_dir)
         .with_context(|| format!("creating {}", data_dir.display()))?;
     let command = cli.command.unwrap_or(Command::Run);
-    let daemon = matches!(command, Command::Run | Command::RunOnce);
+    let daemon = matches!(command, Command::Run | Command::RunOnce { .. });
     init_logging(
         matches!(command, Command::Run).then(|| data_dir.join("collector.log")),
         daemon,
@@ -137,15 +145,10 @@ async fn main() -> Result<()> {
             )
             .await
         }
-        Command::RunOnce => {
+        Command::RunOnce { source, dry_run } => {
             let registry = plugins::load(&directories, &secrets);
-            run_once(
-                &data_dir,
-                &Arc::new(open_store(&data_dir)?),
-                &registry,
-                &secrets,
-            )
-            .await
+            let store = Arc::new(open_store(&data_dir)?);
+            run_once(&data_dir, &store, &registry, &secrets, source, dry_run).await
         }
         Command::EmitTestItem { title } => emit_test_item(&open_store(&data_dir)?, title),
         Command::Secrets { action } => {
@@ -277,16 +280,48 @@ async fn run_once(
     store: &Arc<SqliteStore>,
     registry: &PluginRegistry,
     secrets: &Arc<dyn SecretStore>,
+    source_id: Option<Uuid>,
+    dry_run: bool,
 ) -> Result<()> {
     let config = ConfigFile::new(data_dir.join("collector-config.json"))
         .reload_if_changed()?
         .unwrap_or_default();
-    plugins::publish_catalog(registry, store).await?;
-    let reports = Scheduler::new(fetchers(registry)?, &**store, &**store, SystemClock)
-        .with_enricher(enrichment(store, secrets)?)
-        .run_due(&config)
-        .await?;
-    log_reports(&reports);
+    let scheduler = Scheduler::new(fetchers(registry)?, &**store, &**store, SystemClock)
+        .with_enricher(enrichment(store, secrets)?);
+    let Some(source_id) = source_id else {
+        plugins::publish_catalog(registry, store).await?;
+        log_reports(&scheduler.run_due(&config).await?);
+        return Ok(());
+    };
+    let source = config
+        .sources
+        .iter()
+        .find(|s| s.id == source_id)
+        .with_context(|| format!("no source {source_id} in the config"))?;
+    let summary = if dry_run {
+        let (prepared, enrich) = scheduler.dry_run(source, &config).await?;
+        let items: Vec<serde_json::Value> = prepared
+            .items
+            .iter()
+            .map(|n| serde_json::json!({"item": n.item, "detail": n.body_markdown}))
+            .collect();
+        serde_json::json!({
+            "fetched": prepared.fetched, "too_old": prepared.too_old, "items": items,
+            "articles": enrich.details_extracted, "ai_failures": enrich.ai_failures,
+        })
+    } else {
+        let report = scheduler.run_now(source, &config).await?;
+        log_reports(std::slice::from_ref(&report));
+        match &report.outcome {
+            Ok(ingest) => serde_json::json!({
+                "fetched": ingest.fetched, "too_old": ingest.too_old, "new": ingest.written,
+                "backlog_skipped": ingest.backlog_skipped, "articles": report.enrich.details_extracted,
+                "ai_failures": report.enrich.ai_failures,
+            }),
+            Err(error) => serde_json::json!({"error": error.to_string()}),
+        }
+    };
+    println!("{summary}");
     Ok(())
 }
 

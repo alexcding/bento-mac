@@ -44,6 +44,21 @@ impl SqliteStore {
         Ok(appended)
     }
 
+    fn mark_items_seen(&self, ids: &[Uuid]) -> Result<(), StoreError> {
+        let mut connection = self.connection();
+        let transaction = connection.transaction()?;
+        {
+            let mut insert = transaction.prepare_cached(
+                "INSERT INTO seen_items (item_id) VALUES (?1) ON CONFLICT DO NOTHING",
+            )?;
+            for id in ids {
+                insert.execute([id.to_string()])?;
+            }
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
     fn unseen_items(&self, ids: &[Uuid]) -> Result<HashSet<Uuid>, StoreError> {
         let connection = self.connection();
         let mut seen = connection.prepare_cached("SELECT 1 FROM seen_items WHERE item_id = ?1")?;
@@ -91,6 +106,10 @@ impl Outbox for SqliteStore {
 
     fn append_new(&self, entries: &[OutboxEntry]) -> Result<usize, PortError> {
         self.append_new_to_outbox(entries).map_err(PortError::new)
+    }
+
+    fn mark_seen(&self, ids: &[Uuid]) -> Result<(), PortError> {
+        self.mark_items_seen(ids).map_err(PortError::new)
     }
 }
 
@@ -178,6 +197,18 @@ mod tests {
         let unseen = store.unseen(&[sent.item.id, fresh.item.id]).unwrap();
 
         assert_eq!(unseen, HashSet::from([fresh.item.id]));
+    }
+
+    #[test]
+    fn marked_items_are_seen_but_not_in_the_outbox() {
+        let store = SqliteStore::open_in_memory().unwrap();
+        let skipped = entry("a", None);
+
+        store.mark_seen(&[skipped.item.id]).unwrap();
+
+        assert!(store.unseen(&[skipped.item.id]).unwrap().is_empty());
+        assert!(store.outbox_after(0, 10).unwrap().is_empty());
+        assert_eq!(store.append_new(&[skipped]).unwrap(), 0);
     }
 
     #[test]

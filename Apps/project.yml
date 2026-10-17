@@ -25,6 +25,14 @@ targets:
         type: folder
         buildPhase: resources
     dependencies:
+      # The daemon, as a helper app so it can be signed with the keychain access group that puts
+      # secrets in iCloud Keychain.
+      - target: BentoCollector
+        embed: true
+        codeSign: false
+        copy:
+          destination: wrapper
+          subpath: Contents/Helpers
       - package: BentoData
         product: BentoData
       - package: BentoData
@@ -39,14 +47,44 @@ targets:
         LSApplicationCategoryType: public.app-category.news
         BentoICloudContainer: $(BENTO_ICLOUD_CONTAINER)
     postCompileScripts:
-      - name: Embed bento-collector
-        # Always runs: cargo does its own change tracking. Declared outputs make Xcode re-sign
-        # the app bundle after the embedded binary changes.
+      - name: Embed LaunchAgent
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LaunchAgents/io.github.alexcding.bento.collector.plist
+        inputFiles:
+          - $(SRCROOT)/Bento/LaunchAgents/io.github.alexcding.bento.collector.plist
+        script: |
+          mkdir -p "${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}/Library/LaunchAgents"
+          cp "${SRCROOT}/Bento/LaunchAgents/io.github.alexcding.bento.collector.plist" \
+            "${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}/Library/LaunchAgents/"
+  # bento-collector and the bundled protocol plugins, built by cargo, in a background-only app
+  # bundle (Bento.app/Contents/Helpers/BentoCollector.app). It has no Swift sources; the build
+  # script puts the Rust binaries in place before Xcode signs the bundle.
+  BentoCollector:
+    type: application
+    platform: macOS
+    sources: []
+    info:
+      path: BentoCollector/Info.plist
+      properties:
+        CFBundleDisplayName: Bento Collector
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        LSBackgroundOnly: true
+    settings:
+      base:
+        PRODUCT_NAME: BentoCollector
+        EXECUTABLE_NAME: bento-collector
+        PRODUCT_BUNDLE_IDENTIFIER: $(BENTO_BUNDLE_ID).collector
+        CODE_SIGN_ENTITLEMENTS: $(BENTO_COLLECTOR_ENTITLEMENTS)
+        SKIP_INSTALL: YES
+    postCompileScripts:
+      - name: Build bento-collector
+        # Always runs: cargo does its own change tracking. Declared outputs make Xcode sign the
+        # bundle after the binaries change.
         basedOnDependencyAnalysis: false
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/bento-collector
           - $(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/bento-plugin-bilibili
           - $(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/bento-plugin-telegram
-          - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LaunchAgents/io.github.alexcding.bento.collector.plist
         script: |
           exec "${SRCROOT}/Scripts/embed-collector.sh"

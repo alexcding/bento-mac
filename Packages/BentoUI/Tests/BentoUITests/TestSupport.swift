@@ -78,6 +78,7 @@ final class FakeCollector: CollectorControlling {
   var events: [LoginEvent] = []
   var sentInputs: [String] = []
   var isThisMacCollector = true
+  var secretsSynced = false
 
   init(plugins: [PluginInfo]) {
     self.plugins = plugins

@@ -1,13 +1,13 @@
 #!/bin/sh
-# Xcode build phase: builds bento-collector and the bundled protocol plugins for every
-# architecture in $ARCHS and embeds them, with the collector's LaunchAgent plist, in the app. The
-# outputs are declared in project.yml so Xcode re-signs the app bundle afterwards.
+# Xcode build phase of the BentoCollector helper target: builds bento-collector and the bundled
+# protocol plugins for every architecture in $ARCHS and puts them in the helper's Contents/MacOS.
+# Xcode then signs the helper with its entitlements; bento-collector is its main executable.
 set -eu
 
 export PATH="${HOME}/.cargo/bin:/opt/homebrew/opt/rustup/bin:/opt/homebrew/bin:/usr/local/bin:${PATH}"
 command -v cargo >/dev/null || { echo "error: cargo not found; install Rust (brew install rustup)"; exit 1; }
 
-# The daemon finds plugin executables next to itself in Contents/MacOS.
+# The daemon finds plugin executables next to itself.
 binaries="bento-collector bento-plugin-bilibili bento-plugin-telegram"
 
 services="${SRCROOT}/../services"
@@ -35,11 +35,9 @@ for arch in ${ARCHS}; do
 done
 
 macos_dir="${TARGET_BUILD_DIR}/${EXECUTABLE_FOLDER_PATH}"
-agents_dir="${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}/Library/LaunchAgents"
-mkdir -p "${macos_dir}" "${agents_dir}"
-cp "${SRCROOT}/Bento/LaunchAgents/io.github.alexcding.bento.collector.plist" "${agents_dir}/"
+mkdir -p "${macos_dir}"
 
-# Nested executables are signed before Xcode signs the app bundle. Notarization needs a secure
+# The plugins are nested code, signed here; Xcode signs the main executable with the bundle. Notarization needs a secure
 # timestamp; ad-hoc and debug builds skip it so they work offline.
 identity="${EXPANDED_CODE_SIGN_IDENTITY:--}"
 if [ "${CONFIGURATION}" = "Release" ] && [ "${identity}" != "-" ]; then
@@ -53,5 +51,7 @@ for binary in ${binaries}; do
   for triple in ${triples}; do slices="${slices} ${services}/target/${triple}/${profile}/${binary}"; done
   # shellcheck disable=SC2086
   lipo -create ${slices} -output "${macos_dir}/${binary}"
-  codesign --force --options runtime "${timestamp}" --sign "${identity}" "${macos_dir}/${binary}"
+  if [ "${binary}" != "${EXECUTABLE_NAME}" ]; then
+    codesign --force --options runtime "${timestamp}" --sign "${identity}" "${macos_dir}/${binary}"
+  fi
 done

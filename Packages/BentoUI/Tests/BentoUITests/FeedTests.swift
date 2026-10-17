@@ -306,5 +306,8 @@ struct DestinationSettingsTests {
     await model.addDestination()
 
     #expect(!model.canManageDestinations && collector.calls.isEmpty && store.calls.isEmpty)
+
+    collector.secretsSynced = true
+    #expect(model.canManageDestinations, "synced secrets can be entered on any Mac")
   }
 }

@@ -16,5 +16,8 @@ CODE_SIGN_STYLE = Manual
 CODE_SIGN_IDENTITY = -
 DEVELOPMENT_TEAM =
 CODE_SIGN_ENTITLEMENTS = Bento/Bento.entitlements
+// The collector helper gets the keychain access group (iCloud Keychain) only when signed with a
+// team; an ad-hoc binary with that entitlement would not launch.
+BENTO_COLLECTOR_ENTITLEMENTS =
 
 #include? "Local.xcconfig"

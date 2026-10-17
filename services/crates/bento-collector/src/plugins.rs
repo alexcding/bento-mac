@@ -12,11 +12,18 @@ use bento_store_sqlite::{PluginCatalogEntry, SqliteStore};
 /// `Contents/MacOS`), then user plugins, then any given explicitly. Later directories override.
 pub fn directories(data_dir: &Path, extra: &[PathBuf]) -> Vec<PathBuf> {
     let mut directories = Vec::new();
-    if let Some(bundle_contents) = std::env::current_exe()
-        .ok()
-        .and_then(|exe| Some(exe.parent()?.parent()?.to_owned()))
-    {
-        directories.push(bundle_contents.join("Resources/plugins"));
+    // Bundled plugins are in the app's `Contents/Resources/plugins`. The daemon runs from a helper
+    // inside it (`Contents/Helpers/BentoCollector.app/Contents/MacOS`), or, in older layouts and
+    // development, from `Contents/MacOS` itself.
+    if let Ok(exe) = std::env::current_exe() {
+        let contents: Vec<_> = exe.ancestors().skip(2).step_by(3).take(2).collect();
+        for contents in contents {
+            let plugins = contents.join("Resources/plugins");
+            if plugins.is_dir() {
+                directories.push(plugins);
+                break;
+            }
+        }
     }
     directories.push(data_dir.join("Plugins"));
     directories.extend(extra.iter().cloned());

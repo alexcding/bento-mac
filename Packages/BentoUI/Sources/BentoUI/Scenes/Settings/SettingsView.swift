@@ -93,6 +93,15 @@ private struct PluginsSettingsView: View {
         Text("The collector has not reported its plugins yet. Start the collector from the menu bar.")
           .foregroundStyle(.secondary)
       }
+      if let collector = model.collector {
+        Text(
+          collector.secretsSynced
+            ? "Sign-ins are kept in iCloud Keychain, so any of your Macs can collect without signing in again."
+            : "Sign-ins are kept in this Mac's Keychain only. A Mac that takes over collecting needs them entered again."
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      }
       ForEach(model.plugins) { plugin in
         Section {
           PluginRow(plugin: plugin, model: model)

@@ -71,7 +71,10 @@ enum CollectorCommand {
     var errorDescription: String? { message }
   }
 
-  static var executable: URL? { Bundle.main.url(forAuxiliaryExecutable: "bento-collector") }
+  /// The daemon's binary, the main executable of the helper app in `Contents/Helpers`.
+  static var executable: URL? {
+    Bundle(url: Bundle.main.bundleURL.appending(path: "Contents/Helpers/BentoCollector.app"))?.executableURL
+  }
 
   /// Runs `bento-collector` and returns its stdout. A non-zero exit throws with its stderr.
   static func run(_ arguments: [String], input: Data? = nil) async throws -> Data {

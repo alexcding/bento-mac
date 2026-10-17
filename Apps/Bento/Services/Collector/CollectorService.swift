@@ -27,6 +27,7 @@ final class CollectorService: SourceStatusProviding {
   private(set) var isThisMacCollector = false
   /// The collector Mac's name, from the synced settings.
   private(set) var collectorDeviceName: String?
+  private(set) var secretsSynced = false
 
   let dataDirectory: URL
   var collectorURL: URL { dataDirectory.appending(path: "collector.sqlite") }
@@ -63,6 +64,11 @@ final class CollectorService: SourceStatusProviding {
     ingestor = OutboxIngestor(collectorURL: dataDirectory.appending(path: "collector.sqlite"), database: database)
     agentStatus = agent.status
     claimTask = Task { [weak self] in await self?.claimIfUnset() }
+    Task { [weak self] in
+      let output = try? await CollectorCommand.run(["secrets", "backend"])
+      let json = output.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+      self?.secretsSynced = json?["synced"] as? Bool ?? false
+    }
     pollTask = Task { [weak self] in
       while !Task.isCancelled {
         await self?.sync()

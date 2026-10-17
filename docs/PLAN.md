@@ -57,7 +57,12 @@ results through iCloud. An iOS reader follows later. Notes are out of scope for 
   flood wait pauses every destination on the same bot or account, persisted), failures retry five
   times from 30 s to 15 min, a rejected photo falls back to text, and a post that may have gone out
   (timeout, connection lost mid-send, process killed mid-send) is never sent again.
-- Secrets (cookies, Telegram session, webhook URLs, bot token) live in the collector Mac's Keychain.
+- **Secrets** (cookies, Telegram session, AI keys, webhook URLs, bot tokens) are read and written
+  only by `bento-collector`, which ships as a background helper app
+  (`Bento.app/Contents/Helpers/BentoCollector.app`) so it can carry a keychain access group. In a
+  build signed with a team they are iCloud Keychain items (synchronizable, readable after first
+  unlock), so any of the user's Macs can take over collecting without signing in again; an ad-hoc
+  build keeps them in the local login keychain. `bento-collector secrets backend` says which.
 
 ### SwiftUI layering (same as cascade-mac)
 
@@ -289,8 +294,8 @@ the X plugin's `publish` command.
 - Measure real volume in phase 2 (current estimate: ~500 items/day → ~270 MB/year of slim items).
 - Not yet run against live accounts: Telegram account login, private channels and posting; X
   posting through `twitter-cli` (not installed on the development Mac). Both need real credentials.
-- Secrets stay on the Mac where they were entered: after "Collect on This Mac", plugin sign-ins and
-  destination secrets are entered again on the new collector.
+- iCloud Keychain sync of secrets is unverified until a team-signed build runs on two Macs; ad-hoc
+  builds keep secrets on the Mac where they were entered.
 - A collector Mac whose app is closed keeps collecting until its app next runs and sees another Mac
   took over; item IDs dedupe the feed, but both can post during that window.
 - The Telegram plugin keeps no peer cache between runs, so each post to `@name` resolves it and each

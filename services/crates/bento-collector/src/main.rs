@@ -109,6 +109,9 @@ enum SecretsAction {
     Delete { plugin: String, key: String },
     /// Print, as JSON, which of a plugin's declared secrets are set.
     Status { plugin: String },
+    /// Print `{"synced": true}` when secrets are in iCloud Keychain (shared with the user's other
+    /// Macs), `false` when they stay on this Mac.
+    Backend,
 }
 
 #[derive(Subcommand)]
@@ -396,6 +399,10 @@ fn secrets_command(
             keychain.set(&plugin, &key, value)?;
         }
         SecretsAction::Delete { plugin, key } => keychain.delete(&plugin, &key)?,
+        SecretsAction::Backend => {
+            let synced = keychain.backend()? == bento_secrets_keychain::Backend::Synced;
+            println!("{}", serde_json::json!({ "synced": synced }));
+        }
         SecretsAction::Status { plugin } => {
             let manifest = &registry
                 .plugin(&plugin)

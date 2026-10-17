@@ -7,3 +7,6 @@ CODE_SIGN_STYLE = Automatic
 CODE_SIGN_IDENTITY = Apple Development
 BENTO_ICLOUD_CONTAINER = iCloud.com.example.Bento
 CODE_SIGN_ENTITLEMENTS = Bento/Bento-iCloud.entitlements
+// Lets the collector keep plugin sign-ins and destination secrets in iCloud Keychain, so any of
+// your Macs can take over collecting without signing in again.
+BENTO_COLLECTOR_ENTITLEMENTS = BentoCollector/BentoCollector-Keychain.entitlements

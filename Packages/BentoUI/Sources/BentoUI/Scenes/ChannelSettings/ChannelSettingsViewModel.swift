@@ -132,8 +132,12 @@ public final class ChannelSettingsViewModel: Identifiable {
 
   // MARK: Destinations
 
-  /// Secrets live in the collector Mac's Keychain, so destinations are set up there.
-  var canManageDestinations: Bool { collector?.isThisMacCollector ?? false }
+  /// Secrets go to this Mac's Keychain: any Mac can set up destinations when it syncs them through
+  /// iCloud Keychain, otherwise only the collector Mac.
+  var canManageDestinations: Bool {
+    guard let collector else { return false }
+    return collector.isThisMacCollector || collector.secretsSynced
+  }
 
   var canAddDestination: Bool {
     let filled = { (text: String) in !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }

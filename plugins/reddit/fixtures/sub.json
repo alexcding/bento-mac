@@ -1,0 +1,20 @@
+[
+  {
+    "id": "1abcde",
+    "title": "Show r/rust: a crate",
+    "permalink": "/r/rust/comments/1abcde/show/",
+    "selftext": "Body text",
+    "author": "alice",
+    "created_utc": 1792141200,
+    "thumbnail": "self"
+  },
+  {
+    "id": "1abcdf",
+    "title": "Link post",
+    "permalink": "/r/rust/comments/1abcdf/link/",
+    "url": "https://example.com/a",
+    "author": "bob",
+    "created_utc": 1792141300,
+    "thumbnail": "https://b.thumbs.redditmedia.com/t.jpg"
+  }
+]

@@ -1,0 +1,44 @@
+{
+  "id": "xiaohongshu",
+  "name": "Xiaohongshu (RED)",
+  "version": "0.1.0",
+  "protocol": 1,
+  "capabilities": [
+    "source"
+  ],
+  "description": "Trending notes or search results, through the xhs CLI.",
+  "requires": [
+    {
+      "name": "xhs",
+      "check": [
+        "xhs",
+        "--help"
+      ],
+      "install": "Install the xhs CLI and make sure `xhs` is on your PATH."
+    }
+  ],
+  "source": {
+    "default_interval_minutes": 120,
+    "query_hint": "Empty for trending, or search terms",
+    "cli": {
+      "commands": [
+        {
+          "match": "^$",
+          "args": [
+            "xhs",
+            "hot"
+          ]
+        },
+        {
+          "match": "^(?<q>.+)$",
+          "args": [
+            "xhs",
+            "search",
+            "{q}"
+          ]
+        }
+      ],
+      "output": "text-lines"
+    }
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "id": "youtube",
+  "name": "YouTube",
+  "version": "0.1.0",
+  "protocol": 1,
+  "capabilities": [
+    "source"
+  ],
+  "description": "Videos from a channel, playlist or search, through yt-dlp.",
+  "requires": [
+    {
+      "name": "yt-dlp",
+      "check": [
+        "yt-dlp",
+        "--version"
+      ],
+      "install": "brew install yt-dlp"
+    }
+  ],
+  "source": {
+    "default_interval_minutes": 60,
+    "query_hint": "A channel, playlist or video URL, or search terms",
+    "cli": {
+      "commands": [
+        {
+          "match": "^https?://",
+          "args": [
+            "yt-dlp",
+            "--dump-json",
+            "--no-warnings",
+            "--ignore-errors",
+            "--playlist-end",
+            "{limit}",
+            "{query}"
+          ]
+        },
+        {
+          "match": "^(?<q>.+)$",
+          "args": [
+            "yt-dlp",
+            "--dump-json",
+            "--no-warnings",
+            "--ignore-errors",
+            "ytsearch{limit}:{q}"
+          ]
+        }
+      ],
+      "output": "json-lines",
+      "timeout_seconds": 120,
+      "default_limit": 10,
+      "partial_output_ok": true
+    }
+  }
+}

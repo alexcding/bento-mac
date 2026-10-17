@@ -1,0 +1,13 @@
+[package]
+name = "bento-secrets-keychain"
+description = "macOS Keychain adapter for Bento's secret store."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+bento-app.workspace = true
+security-framework.workspace = true
+
+[lints]
+workspace = true

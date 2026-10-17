@@ -1,0 +1,37 @@
+{
+  "external_id": [
+    "$.id",
+    "$.video_id"
+  ],
+  "url": [
+    "$.webpage_url",
+    "https://www.youtube.com/watch?v={$.id}"
+  ],
+  "title": "$.title",
+  "text": "$.description",
+  "author_name": [
+    "$.channel",
+    "$.uploader"
+  ],
+  "author_handle": [
+    "$.uploader_id",
+    "$.channel_id"
+  ],
+  "published_at": [
+    "$.timestamp",
+    "$.release_timestamp",
+    "$.upload_date"
+  ],
+  "media": [
+    {
+      "type": "video",
+      "url": [
+        "$.webpage_url",
+        "https://www.youtube.com/watch?v={$.id}"
+      ],
+      "thumbnail_url": "$.thumbnail",
+      "duration": "$.duration",
+      "embed_url": "https://www.youtube.com/embed/{$.id}"
+    }
+  ]
+}

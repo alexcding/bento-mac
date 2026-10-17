@@ -1,0 +1,121 @@
+{
+  "id": "x",
+  "name": "X (Twitter)",
+  "version": "0.1.0",
+  "protocol": 1,
+  "capabilities": [
+    "source"
+  ],
+  "description": "Posts from your X timeline, a user, a single post or a search, through twitter-cli.",
+  "requires": [
+    {
+      "name": "twitter-cli",
+      "check": [
+        "twitter",
+        "--version"
+      ],
+      "install": "pipx install twitter-cli"
+    }
+  ],
+  "auth": {
+    "kind": "secrets",
+    "fields": [
+      {
+        "key": "auth_token",
+        "label": "auth_token cookie",
+        "help": "Copy the auth_token cookie from x.com in your browser."
+      },
+      {
+        "key": "ct0",
+        "label": "ct0 cookie",
+        "help": "Copy the ct0 cookie from x.com in your browser."
+      }
+    ]
+  },
+  "source": {
+    "default_interval_minutes": 15,
+    "query_hint": "Empty for your timeline, @handle, an x.com link, or search terms",
+    "cli": {
+      "commands": [
+        {
+          "match": "^$",
+          "args": [
+            "twitter",
+            "feed",
+            "-n",
+            "{limit}",
+            "--json"
+          ]
+        },
+        {
+          "match": "^@(?<user>[A-Za-z0-9_]{1,15})$",
+          "args": [
+            "twitter",
+            "user-posts",
+            "{user}",
+            "-n",
+            "{limit}",
+            "--json"
+          ]
+        },
+        {
+          "match": "^(?:https?://)?(?:www\\.|mobile\\.)?(?:twitter|x)\\.com/[A-Za-z0-9_]+/status(?:es)?/\\d+",
+          "args": [
+            "twitter",
+            "tweet",
+            "{query}",
+            "--json"
+          ]
+        },
+        {
+          "match": "^(?:https?://)?(?:www\\.|mobile\\.)?(?:twitter|x)\\.com/search\\?(?:.*&)?q=(?<q>[^&#]+)",
+          "args": [
+            "twitter",
+            "search",
+            "{q|urldecode}",
+            "-n",
+            "{limit}",
+            "--json"
+          ]
+        },
+        {
+          "match": "^(?:https?://)?(?:www\\.|mobile\\.)?(?:twitter|x)\\.com/(?:home|i|search|explore|notifications|messages)(?:[/?#]|$)",
+          "args": [
+            "twitter",
+            "feed",
+            "-n",
+            "{limit}",
+            "--json"
+          ]
+        },
+        {
+          "match": "^(?:https?://)?(?:www\\.|mobile\\.)?(?:twitter|x)\\.com/(?<user>[A-Za-z0-9_]{1,15})/?(?:[?#].*)?$",
+          "args": [
+            "twitter",
+            "user-posts",
+            "{user}",
+            "-n",
+            "{limit}",
+            "--json"
+          ]
+        },
+        {
+          "match": "^(?<q>.+)$",
+          "args": [
+            "twitter",
+            "search",
+            "{q}",
+            "-n",
+            "{limit}",
+            "--json"
+          ]
+        }
+      ],
+      "env": {
+        "TWITTER_AUTH_TOKEN": "{secret.auth_token}",
+        "TWITTER_CT0": "{secret.ct0}"
+      },
+      "output": "json"
+    }
+  }
+}

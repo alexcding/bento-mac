@@ -1,0 +1,40 @@
+{
+  "data": [
+    {
+      "id_str": "1834567890123456789",
+      "full_text": "Rust 2.0 &amp; beyond <3",
+      "created_at": "Wed Oct 14 20:19:24 +0000 2026",
+      "user": {
+        "name": "Rust Lang",
+        "screen_name": "rustlang",
+        "profile_image_url_https": "https://pbs.twimg.com/a.png"
+      },
+      "extended_entities": {
+        "media": [
+          {
+            "type": "photo",
+            "media_url_https": "https://pbs.twimg.com/m1.jpg"
+          }
+        ]
+      },
+      "quoted_status": {
+        "id_str": "1834567890000000000",
+        "full_text": "Original post",
+        "created_at": "Tue Oct 13 10:00:00 +0000 2026",
+        "user": {
+          "name": "Ann",
+          "screen_name": "ann"
+        }
+      }
+    },
+    {
+      "id": "1834567890123456790",
+      "text": "Second",
+      "author": {
+        "name": "Bob",
+        "username": "bob"
+      },
+      "createdAt": "2026-10-14T21:00:00Z"
+    }
+  ]
+}

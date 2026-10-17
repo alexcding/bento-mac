@@ -20,6 +20,10 @@ targets:
       - path: Bento
         excludes:
           - LaunchAgents
+      # Bundled plugins, copied as Contents/Resources/plugins and loaded by bento-collector.
+      - path: ../plugins
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: BentoData
         product: BentoData

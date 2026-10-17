@@ -6,11 +6,13 @@
 //! text and drop only common inline tags written with quoted attributes.
 
 /// Item bodies and summaries.
+#[must_use]
 pub fn body_to_text(html: &str) -> String {
     to_text(html, Mode::Body)
 }
 
 /// Item and feed titles.
+#[must_use]
 pub fn title_to_text(html: &str) -> String {
     to_text(html, Mode::Title)
 }
@@ -199,6 +201,7 @@ fn decode_entity(name: &str) -> Option<char> {
     }
 }
 
+#[must_use]
 pub fn truncate_chars(text: &str, max: usize) -> String {
     match text.char_indices().nth(max) {
         Some((end, _)) => format!("{}…", text[..end].trim_end()),

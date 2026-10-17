@@ -1,0 +1,41 @@
+{
+  "items": [
+    "$..[?@.title && (@.permalink || @.url)]",
+    "$"
+  ],
+  "external_id": [
+    "$.id",
+    "$.post_id",
+    "$.name"
+  ],
+  "url": [
+    "https://www.reddit.com{$.permalink}",
+    "$.url"
+  ],
+  "title": "$.title",
+  "text": [
+    "$.selftext",
+    "$.body"
+  ],
+  "author_name": [
+    "$.author.name",
+    "$.author"
+  ],
+  "author_handle": [
+    "$.author.name",
+    "$.author"
+  ],
+  "published_at": [
+    "$.created_utc",
+    "$.created"
+  ],
+  "media": [
+    {
+      "type": "image",
+      "url": [
+        "$.preview.images[0].source.url",
+        "$.thumbnail"
+      ]
+    }
+  ]
+}

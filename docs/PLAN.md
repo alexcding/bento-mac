@@ -250,6 +250,11 @@ with sync off.
 | 1 | RSS end to end: scheduler, task queue, built-in RSS, outbox → app; native reader (feed by day, filters, search, detail, bookmarks) | A subscribed RSS feed shows up on the Mac and on a second device; bookmarks sync |
 | 2 | Plugin host + test kit; X, Reddit, YouTube, Bilibili, Telegram, Xiaohongshu; detail extraction; AI service with CLI and HTTP providers and configurable steps; run options; Mac settings screens | Every source runs unattended for a week with no duplicates or crashes |
 | 3 | Discord, Telegram bot, Telegram account (`grammers`), X posting | A week with no duplicate or missed sends |
+
+Phase 2 ships in slices, each reviewed twice: **2a** plugin host, manifest and mapping, CLI plugins (X,
+Reddit, YouTube, Xiaohongshu), dependency checks, Keychain secrets; **2b** AI service and article text
+extraction; **2c** code plugins with login (Bilibili QR, Telegram via `grammers`); **2d** run options and the
+Mac settings screens (plugins, AI profiles and tasks, logins, dependencies).
 | Later | iOS reader, read-only local JSON API, notes | — |
 
 ## Open items

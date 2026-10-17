@@ -1,12 +1,10 @@
 //! Built-in RSS and Atom source. Plugin ID `rss`; the source's `query` is the feed URL.
 
-mod html;
-
 use std::time::Duration;
 
 use async_trait::async_trait;
 use bento_app::{PortError, SourceFetcher};
-use bento_domain::{Author, Media, MediaKind, RawItem, SourceConfig};
+use bento_domain::{Author, Media, MediaKind, RawItem, SourceConfig, html};
 use feed_rs::model::{Entry, Feed};
 use thiserror::Error;
 

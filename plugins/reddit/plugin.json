@@ -1,0 +1,91 @@
+{
+  "id": "reddit",
+  "name": "Reddit",
+  "version": "0.1.0",
+  "protocol": 1,
+  "capabilities": [
+    "source"
+  ],
+  "description": "Posts from front pages, subreddits, threads or searches, through rdt-cli.",
+  "requires": [
+    {
+      "name": "rdt-cli",
+      "check": [
+        "rdt",
+        "--version"
+      ],
+      "install": "pipx install rdt-cli"
+    }
+  ],
+  "source": {
+    "default_interval_minutes": 10,
+    "query_hint": "popular, all, r/subreddit, a reddit.com link, or search terms",
+    "cli": {
+      "commands": [
+        {
+          "match": "^/?(?:popular)?$",
+          "args": [
+            "rdt",
+            "popular",
+            "--limit",
+            "{limit}",
+            "--json"
+          ]
+        },
+        {
+          "match": "^/?all$",
+          "args": [
+            "rdt",
+            "all",
+            "--limit",
+            "{limit}",
+            "--json"
+          ]
+        },
+        {
+          "match": "^(?:(?:https?://)?(?:www\\.|old\\.|new\\.)?reddit\\.com)?/?r/[A-Za-z0-9_]+/comments/(?<id>[A-Za-z0-9]+)",
+          "args": [
+            "rdt",
+            "read",
+            "{id}",
+            "--json"
+          ]
+        },
+        {
+          "match": "^(?:https?://)?(?:www\\.|old\\.|new\\.)?reddit\\.com/(?:r/[A-Za-z0-9_]+/)?search/?\\?(?:.*&)?q=(?<q>[^&#]+)",
+          "args": [
+            "rdt",
+            "search",
+            "{q|urldecode}",
+            "--limit",
+            "{limit}",
+            "--json"
+          ]
+        },
+        {
+          "match": "^(?:(?:https?://)?(?:www\\.|old\\.|new\\.)?reddit\\.com)?/?r/(?<sub>[A-Za-z0-9_]+)",
+          "args": [
+            "rdt",
+            "sub",
+            "{sub}",
+            "--limit",
+            "{limit}",
+            "--json"
+          ]
+        },
+        {
+          "match": "^(?<q>.+)$",
+          "args": [
+            "rdt",
+            "search",
+            "{q}",
+            "--limit",
+            "{limit}",
+            "--json"
+          ]
+        }
+      ],
+      "output": "json"
+    }
+  }
+}

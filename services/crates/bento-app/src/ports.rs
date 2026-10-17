@@ -48,6 +48,12 @@ impl Clock for SystemClock {
     }
 }
 
+/// Plugin secrets (cookies, tokens), stored in the Keychain by the daemon itself so values never
+/// leave it.
+pub trait SecretStore: Send + Sync {
+    fn secret(&self, plugin_id: &str, key: &str) -> Result<Option<String>, PortError>;
+}
+
 /// Fetches raw items for one source. One implementation per plugin.
 #[async_trait]
 pub trait SourceFetcher: Send + Sync {

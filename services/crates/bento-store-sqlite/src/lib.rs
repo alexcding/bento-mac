@@ -5,6 +5,7 @@
 //! (`Outbox.swift`, `CollectorStatus.swift`).
 
 mod outbox;
+mod plugins;
 mod source_state;
 
 use std::path::Path;
@@ -15,6 +16,7 @@ use rusqlite::{Connection, TransactionBehavior};
 use thiserror::Error;
 
 pub use outbox::OutboxRow;
+pub use plugins::PluginCatalogEntry;
 
 #[derive(Debug, Error)]
 pub enum StoreError {
@@ -31,6 +33,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/001_outbox.sql"),
     include_str!("migrations/002_scheduling.sql"),
     include_str!("migrations/003_run_log.sql"),
+    include_str!("migrations/004_plugins.sql"),
 ];
 
 pub struct SqliteStore {
@@ -117,7 +120,7 @@ mod tests {
             .connection()
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
     }
 
     #[test]

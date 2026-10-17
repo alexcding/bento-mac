@@ -7,7 +7,7 @@ pub mod schedule;
 
 pub use ingest::{IngestReport, Ingestor};
 pub use ports::{
-    Clock, Outbox, OutboxEntry, PortError, RunRecord, SourceFetcher, SourceState, SourceStateStore,
-    SystemClock,
+    Clock, Outbox, OutboxEntry, PortError, RunRecord, SecretStore, SourceFetcher, SourceState,
+    SourceStateStore, SystemClock,
 };
 pub use schedule::{FetcherRegistry, RunReport, Scheduler};

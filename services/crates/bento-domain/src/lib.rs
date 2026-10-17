@@ -5,6 +5,7 @@
 
 pub mod config;
 pub mod detail;
+pub mod html;
 pub mod item;
 pub mod stable_id;
 

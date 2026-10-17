@@ -1,0 +1,5 @@
+{
+  "external_id": "$.url",
+  "url": "$.url",
+  "text": "$.text"
+}

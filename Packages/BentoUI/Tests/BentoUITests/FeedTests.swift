@@ -140,6 +140,29 @@ struct FeedViewModelTests {
 }
 
 @Suite struct PluginInfoTests {
+  @Test func readyOnlyWithProgramsAndNeededSignIn() {
+    let x = plugin(
+      "x",
+      manifest: #"{"id":"x","capabilities":["source"],"source":{},"auth":{"kind":"secrets","fields":[{"key":"auth_token","label":"a"},{"key":"ct0","label":"c"}]}}"#,
+      requirements: #"[{"name":"twitter-cli","installed":true}]"#
+    )
+    #expect(!x.isReady(secretStatus: nil))
+    #expect(!x.isReady(secretStatus: ["auth_token": true, "ct0": false]))
+    #expect(x.isReady(secretStatus: ["auth_token": true, "ct0": true]))
+
+    let youtube = plugin(
+      "youtube", manifest: #"{"id":"youtube","capabilities":["source"],"source":{}}"#,
+      requirements: #"[{"name":"yt-dlp","installed":false}]"#
+    )
+    #expect(!youtube.isReady(secretStatus: nil), "its program is missing")
+
+    let telegram = plugin(
+      "telegram",
+      manifest: #"{"id":"telegram","capabilities":["source"],"source":{},"auth":{"kind":"interactive","secrets":["session"],"required":false}}"#
+    )
+    #expect(telegram.isReady(secretStatus: nil), "public channels need no sign-in")
+  }
+
   @Test func rssNeedsAWebURLOtherPluginsAcceptAnyQuery() {
     #expect(PluginInfo.rss.accepts(query: " https://example.com/feed.xml "))
     #expect(!PluginInfo.rss.accepts(query: "ftp://example.com"))
@@ -295,6 +318,21 @@ struct DestinationSettingsTests {
     await model.addDestination()
 
     #expect(collector.calls.isEmpty && store.calls == ["addDestination(x,X (as you),-)"])
+  }
+
+  @Test func offersOnlyReadyPluginsAsSources() async {
+    let x = plugin(
+      "x",
+      manifest: #"{"id":"x","name":"X","capabilities":["source"],"source":{},"auth":{"kind":"secrets","fields":[{"key":"auth_token","label":"a"},{"key":"ct0","label":"c"}]}}"#
+    )
+    let youtube = plugin("youtube", manifest: #"{"id":"youtube","capabilities":["source"],"source":{}}"#)
+    let collector = FakeCollector(plugins: [x, youtube])
+    let model = model(collector)
+
+    await model.refreshSignIns()
+
+    #expect(model.availablePlugins.map(\.id) == ["youtube"], "X still misses ct0")
+    #expect(model.pluginsNeedingSetup.map(\.id) == ["x"])
   }
 
   @Test func onlyTheCollectorMacSetsUpDestinations() async {

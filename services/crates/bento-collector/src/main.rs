@@ -419,10 +419,10 @@ fn secrets_command(
                 .with_context(|| format!("no plugin named {plugin}"))?
                 .manifest;
             let keys: Vec<&str> = match &manifest.auth {
-                bento_plugin_host::manifest::Auth::Secrets { fields } => {
+                bento_plugin_host::manifest::Auth::Secrets { fields, .. } => {
                     fields.iter().map(|f| f.key.as_str()).collect()
                 }
-                bento_plugin_host::manifest::Auth::Interactive { secrets } => {
+                bento_plugin_host::manifest::Auth::Interactive { secrets, .. } => {
                     secrets.iter().map(String::as_str).collect()
                 }
                 bento_plugin_host::manifest::Auth::None => Vec::new(),

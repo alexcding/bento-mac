@@ -27,6 +27,8 @@ public final class ChannelSettingsViewModel: Identifiable {
   var newDestinationSecret = ""
   var newDestinationChatID = ""
   private(set) var destinationMessage: String?
+  /// Plugin ID → which of its secrets are set, for plugins that need a sign-in.
+  private(set) var secretStatus: [String: [String: Bool]] = [:]
   @ObservationIgnored public var onAction: (Action) -> Void = { _ in }
 
   @ObservationIgnored @FetchOne var channel: Channel?
@@ -63,12 +65,29 @@ public final class ChannelSettingsViewModel: Identifiable {
       try await $destinations.load(Destination.where { $0.channelID.eq(channelID) }.order(by: \.name))
       name = channel?.name ?? ""
     }
+    await refreshSignIns()
   }
 
-  /// Source types that can be added: the collector's loaded source plugins, or RSS without one.
+  /// Reads which plugins are signed in, so only usable ones are offered as sources.
+  func refreshSignIns() async {
+    guard let collector else { return }
+    for plugin in collector.plugins where plugin.authRequired && (plugin.hasInteractiveLogin || !plugin.secretFields.isEmpty) {
+      if let status = try? await collector.secretStatus(pluginID: plugin.id) {
+        secretStatus[plugin.id] = status
+      }
+    }
+  }
+
+  /// Source types that can be added: plugins that are ready (programs installed, sign-in set if
+  /// needed), or RSS without a collector.
   var availablePlugins: [PluginInfo] {
-    let loaded = collector?.plugins.filter { $0.isSource && $0.loadError == nil } ?? []
-    return loaded.isEmpty ? [.rss] : loaded
+    let ready = collector?.plugins.filter { $0.isReady(secretStatus: secretStatus[$0.id]) } ?? []
+    return ready.isEmpty ? [.rss] : ready
+  }
+
+  /// Source plugins left out because they still need setting up.
+  var pluginsNeedingSetup: [PluginInfo] {
+    (collector?.plugins ?? []).filter { $0.isSource && $0.loadError == nil && !$0.isReady(secretStatus: secretStatus[$0.id]) }
   }
 
   var newSourcePlugin: PluginInfo? {
@@ -82,7 +101,7 @@ public final class ChannelSettingsViewModel: Identifiable {
   }
 
   func pluginName(for source: Source) -> String {
-    availablePlugins.first { $0.id == source.pluginID }?.name ?? source.pluginID
+    (collector?.plugins ?? [.rss]).first { $0.id == source.pluginID }?.name ?? source.pluginID
   }
 
   func saveName() {

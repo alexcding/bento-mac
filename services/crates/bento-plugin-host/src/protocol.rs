@@ -116,8 +116,8 @@ impl ProtocolPlugin {
         secrets: Arc<dyn SecretStore>,
     ) -> Self {
         let secret_keys = match &manifest.auth {
-            Auth::Interactive { secrets } => secrets.clone(),
-            Auth::Secrets { fields } => fields.iter().map(|f| f.key.clone()).collect(),
+            Auth::Interactive { secrets, .. } => secrets.clone(),
+            Auth::Secrets { fields, .. } => fields.iter().map(|f| f.key.clone()).collect(),
             Auth::None => Vec::new(),
         };
         Self {

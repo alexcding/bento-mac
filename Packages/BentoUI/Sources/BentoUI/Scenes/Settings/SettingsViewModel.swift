@@ -68,8 +68,7 @@ public final class SettingsViewModel {
   }
 
   func isSignedIn(_ plugin: PluginInfo) -> Bool {
-    guard let status = secretStatus[plugin.id] else { return false }
-    return plugin.hasInteractiveLogin ? status.values.contains(true) : !status.isEmpty && status.values.allSatisfy { $0 }
+    plugin.isSignedIn(secretStatus[plugin.id])
   }
 
   func saveSecret(_ value: String, key: String, plugin: PluginInfo) async {

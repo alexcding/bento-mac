@@ -90,6 +90,8 @@ public struct PluginInfo: Identifiable, Hashable, Sendable {
   /// Signs in through `startLogin` (QR or phone code) rather than typed secrets.
   public var hasInteractiveLogin: Bool
   public var interactiveSecretKeys: [String]
+  /// Whether fetching needs the sign-in or secrets (Telegram's public channels do not).
+  public var authRequired: Bool
   public var requirements: [Requirement]
   /// Why the plugin did not load.
   public var loadError: String?
@@ -126,6 +128,7 @@ public struct PluginInfo: Identifiable, Hashable, Sendable {
     } ?? []
     hasInteractiveLogin = auth["kind"] as? String == "interactive"
     interactiveSecretKeys = hasInteractiveLogin ? auth["secrets"] as? [String] ?? [] : []
+    authRequired = auth["required"] as? Bool ?? true
     self.requirements = ((try? JSONSerialization.jsonObject(with: requirements)) as? [[String: Any]] ?? []).map {
       Requirement(
         name: $0["name"] as? String ?? "",
@@ -143,6 +146,20 @@ public struct PluginInfo: Identifiable, Hashable, Sendable {
     manifest: Data(#"{"id":"rss","capabilities":["source"],"source":{"default_interval_minutes":30,"query_hint":"Feed URL"}}"#.utf8),
     requirements: Data("[]".utf8), error: nil
   )
+
+  /// Whether its sign-in or secrets are set, given which keys are (`secretStatus`).
+  public func isSignedIn(_ status: [String: Bool]?) -> Bool {
+    guard let status else { return false }
+    return hasInteractiveLogin ? status.values.contains(true) : !status.isEmpty && status.values.allSatisfy { $0 }
+  }
+
+  /// Whether it can be added as a source: it loaded, its programs are installed, and any sign-in
+  /// it needs is set.
+  public func isReady(secretStatus status: [String: Bool]?) -> Bool {
+    guard isSource, loadError == nil, requirements.allSatisfy(\.installed) else { return false }
+    let needsAuth = authRequired && (hasInteractiveLogin || !secretFields.isEmpty)
+    return !needsAuth || isSignedIn(status)
+  }
 
   /// Whether a query is acceptable for this plugin. RSS needs a web URL; other plugins accept an
   /// empty query (a default feed) or any text.

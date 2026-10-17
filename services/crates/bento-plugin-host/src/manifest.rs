@@ -79,10 +79,24 @@ pub enum Auth {
     #[default]
     None,
     /// Values the user enters in Settings; stored in the Keychain.
-    Secrets { fields: Vec<SecretField> },
+    Secrets {
+        fields: Vec<SecretField>,
+        /// Whether the plugin needs them to fetch anything. The app offers a plugin as a source
+        /// only once what it needs is set.
+        #[serde(default = "required_by_default")]
+        required: bool,
+    },
     /// A login the plugin drives step by step (`auth/begin`, `auth/step`): QR codes, phone codes.
     /// `secrets` lists the Keychain keys it saves and receives back.
-    Interactive { secrets: Vec<String> },
+    Interactive {
+        secrets: Vec<String>,
+        #[serde(default = "required_by_default")]
+        required: bool,
+    },
+}
+
+fn required_by_default() -> bool {
+    true
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

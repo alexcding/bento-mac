@@ -112,6 +112,35 @@
                   }
                 }
               }
+            },
+            "required": {
+              "description": "Whether the plugin needs this to fetch anything (default true). The app offers the plugin as a source only once what it needs is set.",
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "secrets"
+          ],
+          "properties": {
+            "kind": {
+              "const": "interactive"
+            },
+            "secrets": {
+              "description": "Keychain keys the login saves (`save_secrets`) and receives back.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1
+            },
+            "required": {
+              "description": "Whether the plugin needs this to fetch anything (default true). The app offers the plugin as a source only once what it needs is set.",
+              "type": "boolean"
             }
           }
         }

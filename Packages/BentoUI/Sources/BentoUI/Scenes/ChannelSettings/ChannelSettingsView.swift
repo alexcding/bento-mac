@@ -102,6 +102,13 @@ struct ChannelSettingsView: View {
       addSourceFields
       Toggle("Skip posts that already exist", isOn: $model.newSourceSkipsBacklog)
         .font(.caption)
+      if !model.pluginsNeedingSetup.isEmpty {
+        Text(
+          "\(model.pluginsNeedingSetup.map(\.name).formatted()) appear here once set up in Settings → Plugins."
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      }
     }
   }
 

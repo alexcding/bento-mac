@@ -15,7 +15,8 @@
       "api_id",
       "api_hash",
       "session"
-    ]
+    ],
+    "required": false
   },
   "source": {
     "default_interval_minutes": 10,

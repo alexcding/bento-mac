@@ -50,6 +50,10 @@ impl<S: DeliveryStore, C: Clock> Deliverer<S, C> {
     /// item quotes is posted inside that item, not on its own. Returns how many were queued.
     pub fn plan(&self, config: &CollectorConfig) -> Result<usize, PortError> {
         let mut rows = self.store.undelivered_outbox(PLAN_BATCH)?;
+        let quoted: HashSet<_> = rows
+            .iter()
+            .filter_map(|(_, item)| item.reference_item_id)
+            .collect();
         // A quoted item is appended just before the item quoting it, so a full batch leaves its
         // last row for the next pass, where it is read together with what follows.
         if rows.len() == PLAN_BATCH {
@@ -58,10 +62,6 @@ impl<S: DeliveryStore, C: Clock> Deliverer<S, C> {
         let Some(&(through_seq, _)) = rows.last() else {
             return Ok(0);
         };
-        let quoted: HashSet<_> = rows
-            .iter()
-            .filter_map(|(_, item)| item.reference_item_id)
-            .collect();
         let destinations: Vec<_> = config
             .destinations
             .iter()
@@ -91,8 +91,7 @@ impl<S: DeliveryStore, C: Clock> Deliverer<S, C> {
         keep_going: &(dyn Fn() -> bool + Sync),
     ) -> Result<Vec<SendReport>, PortError> {
         let mut reports = Vec::new();
-        // Set by a flood wait in this pass; later passes see it in the postponed rows.
-        let mut telegram_waits = false;
+        let mut telegram_paused_until = self.store.telegram_paused_until()?;
         for delivery in self.store.next_deliveries()? {
             let now = self.clock.now();
             let destination = config
@@ -110,7 +109,8 @@ impl<S: DeliveryStore, C: Clock> Deliverer<S, C> {
                 .last_sent_at(destination.id)?
                 .is_none_or(|last| now >= last + delay);
             let telegram = destination.kind == DestinationKind::TelegramBot;
-            if delivery.next_attempt_at > now || !spaced || (telegram && telegram_waits) {
+            let paused = telegram && telegram_paused_until.is_some_and(|until| now < until);
+            if delivery.next_attempt_at > now || !spaced || paused {
                 continue;
             }
             if !keep_going() {
@@ -134,15 +134,10 @@ impl<S: DeliveryStore, C: Clock> Deliverer<S, C> {
             } = &outcome
                 && telegram
             {
-                telegram_waits = true;
-                // A flood wait applies to the bot, so every Telegram destination waits.
-                let telegram: Vec<_> = config
-                    .destinations
-                    .iter()
-                    .filter(|d| d.kind == DestinationKind::TelegramBot)
-                    .map(|d| d.id)
-                    .collect();
-                self.store.postpone_deliveries(&telegram, *at)?;
+                // A flood wait applies to the bot, so every Telegram destination waits, including
+                // for posts queued later.
+                self.store.pause_telegram(*at)?;
+                telegram_paused_until = Some(*at);
             }
             reports.push(SendReport {
                 delivery_id: delivery.id,
@@ -212,6 +207,7 @@ mod tests {
         cursor: Mutex<i64>,
         queue: Mutex<Vec<(i64, Uuid, Uuid, DeliveryOutcomeState)>>,
         sent_at: Mutex<Vec<(Uuid, DateTime<Utc>)>>,
+        telegram_pause: Mutex<Option<DateTime<Utc>>>,
     }
 
     #[derive(Clone, Debug, PartialEq)]
@@ -287,18 +283,11 @@ mod tests {
         fn fail_interrupted_deliveries(&self, _: &str) -> Result<(), PortError> {
             Ok(())
         }
-        fn postpone_deliveries(
-            &self,
-            destinations: &[Uuid],
-            until: DateTime<Utc>,
-        ) -> Result<(), PortError> {
-            for entry in self.queue.lock().unwrap().iter_mut() {
-                if let DeliveryOutcomeState::Pending { at, .. } = &mut entry.3
-                    && destinations.contains(&entry.1)
-                {
-                    *at = (*at).max(until);
-                }
-            }
+        fn telegram_paused_until(&self) -> Result<Option<DateTime<Utc>>, PortError> {
+            Ok(*self.telegram_pause.lock().unwrap())
+        }
+        fn pause_telegram(&self, until: DateTime<Utc>) -> Result<(), PortError> {
+            *self.telegram_pause.lock().unwrap() = Some(until);
             Ok(())
         }
         fn last_sent_at(&self, destination: Uuid) -> Result<Option<DateTime<Utc>>, PortError> {
@@ -563,5 +552,49 @@ mod tests {
         block_on(deliverer.send_due(&config, &|| false)).unwrap();
 
         assert!(publisher.1.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_quote_split_by_a_full_batch_is_posted_once() {
+        let (deliverer, store, _, _) = deliverer(vec![]);
+        let mut rows: Vec<_> = (1..=498)
+            .map(|n| (i64::try_from(n).unwrap(), item(n, "x")))
+            .collect();
+        let quoted = item(499, "orig");
+        let mut quote = item(500, "take");
+        quote.reference_item_id = Some(quoted.id);
+        rows.push((499, quoted.clone()));
+        rows.push((500, quote));
+        *store.outbox.lock().unwrap() = rows;
+        let config = config(vec![destination(100, DestinationKind::Discord)]);
+
+        deliverer.plan(&config).unwrap();
+        deliverer.plan(&config).unwrap();
+
+        let queued: Vec<_> = store.queue.lock().unwrap().iter().map(|q| q.2).collect();
+        assert!(!queued.contains(&quoted.id), "posted inside its quote");
+        assert!(queued.contains(&Uuid::from_u128(500)));
+        assert_eq!(queued.len(), 499);
+    }
+
+    #[test]
+    fn a_telegram_flood_wait_also_holds_posts_queued_later() {
+        let (deliverer, store, publisher, clock) = deliverer(vec![Err(PublishError::RateLimited(
+            std::time::Duration::from_secs(300),
+        ))]);
+        let mut config = config(vec![destination(100, DestinationKind::TelegramBot)]);
+        *store.outbox.lock().unwrap() = vec![(1, item(1, "a"))];
+        deliverer.plan(&config).unwrap();
+        block_on(deliverer.send_due(&config, &|| true)).unwrap();
+
+        let mut second = destination(101, DestinationKind::TelegramBot);
+        second.source_ids = vec![SOURCE];
+        config.destinations.push(second);
+        store.outbox.lock().unwrap().push((2, item(2, "b")));
+        deliverer.plan(&config).unwrap();
+        advance(&clock, 2);
+        block_on(deliverer.send_due(&config, &|| true)).unwrap();
+
+        assert_eq!(*publisher.1.lock().unwrap(), ["d100:a"]);
     }
 }

@@ -36,8 +36,17 @@ pub fn spawn(
             }
         };
         let mut config = CollectorConfig::default();
+        // Nothing is sent before a config loads: with none, every destination would look removed.
+        let mut loaded = false;
         while !*shutdown.borrow() {
-            crate::reload(&mut config_file, &mut config);
+            loaded |= crate::reload(&mut config_file, &mut config);
+            if !loaded {
+                tokio::select! {
+                    _ = shutdown.changed() => {}
+                    () = tokio::time::sleep(TICK) => {}
+                }
+                continue;
+            }
             if let Err(error) = deliverer.plan(&config) {
                 tracing::error!(%error, "queuing posts failed");
             }

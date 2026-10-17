@@ -188,20 +188,28 @@ impl DeliveryStore for SqliteStore {
         .map_err(PortError::new)
     }
 
-    fn postpone_deliveries(
-        &self,
-        destination_ids: &[Uuid],
-        until: DateTime<Utc>,
-    ) -> Result<(), PortError> {
-        for id in destination_ids {
-            self.execute(
-                "UPDATE deliveries SET next_attempt_at = MAX(next_attempt_at, ?2)
-                 WHERE state = 'pending' AND destination_id = ?1",
-                params![id.to_string(), until.timestamp_millis()],
+    fn telegram_paused_until(&self) -> Result<Option<DateTime<Utc>>, PortError> {
+        let millis: Option<String> = self
+            .connection()
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'telegram_paused_until'",
+                [],
+                |row| row.get(0),
             )
+            .optional()
             .map_err(PortError::new)?;
-        }
-        Ok(())
+        Ok(millis
+            .and_then(|value| value.parse().ok())
+            .and_then(DateTime::from_timestamp_millis))
+    }
+
+    fn pause_telegram(&self, until: DateTime<Utc>) -> Result<(), PortError> {
+        self.execute(
+            "INSERT INTO meta (key, value) VALUES ('telegram_paused_until', ?1)
+             ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            [until.timestamp_millis().to_string()],
+        )
+        .map_err(PortError::new)
     }
 
     fn last_sent_at(&self, destination_id: Uuid) -> Result<Option<DateTime<Utc>>, PortError> {
@@ -306,7 +314,7 @@ mod tests {
     }
 
     #[test]
-    fn heads_per_destination_postponing_and_interrupted_sends() {
+    fn heads_per_destination_telegram_pause_and_interrupted_sends() {
         let store = SqliteStore::open_in_memory().unwrap();
         let items = [entry("a", None), entry("b", None)];
         store.append_new(&items).unwrap();
@@ -330,15 +338,14 @@ mod tests {
         );
 
         let until = now + chrono::Duration::seconds(60);
-        store.postpone_deliveries(&[second], until).unwrap();
-        let heads = store.next_deliveries().unwrap();
+        assert_eq!(store.telegram_paused_until().unwrap(), None);
+        store.pause_telegram(until).unwrap();
         assert_eq!(
-            heads[1].next_attempt_at.timestamp_millis(),
-            until.timestamp_millis()
-        );
-        assert!(
-            heads[0].next_attempt_at < until,
-            "other destinations are untouched"
+            store
+                .telegram_paused_until()
+                .unwrap()
+                .map(|at| at.timestamp_millis()),
+            Some(until.timestamp_millis())
         );
 
         store.start_delivery(heads[0].id).unwrap();

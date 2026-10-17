@@ -187,12 +187,9 @@ pub trait DeliveryStore: Send + Sync {
     fn start_delivery(&self, id: i64) -> Result<(), PortError>;
     /// Fails every delivery left marked as being sent.
     fn fail_interrupted_deliveries(&self, error: &str) -> Result<(), PortError>;
-    /// Delays the destinations' pending deliveries until at least `until`.
-    fn postpone_deliveries(
-        &self,
-        destination_ids: &[Uuid],
-        until: DateTime<Utc>,
-    ) -> Result<(), PortError>;
+    /// Until when a Telegram flood wait pauses every Telegram destination.
+    fn telegram_paused_until(&self) -> Result<Option<DateTime<Utc>>, PortError>;
+    fn pause_telegram(&self, until: DateTime<Utc>) -> Result<(), PortError>;
     /// When a post last went out to the destination.
     fn last_sent_at(&self, destination_id: Uuid) -> Result<Option<DateTime<Utc>>, PortError>;
     fn finish_delivery(
@@ -301,12 +298,12 @@ impl<T: DeliveryStore + ?Sized> DeliveryStore for std::sync::Arc<T> {
         (**self).fail_interrupted_deliveries(error)
     }
 
-    fn postpone_deliveries(
-        &self,
-        destination_ids: &[Uuid],
-        until: DateTime<Utc>,
-    ) -> Result<(), PortError> {
-        (**self).postpone_deliveries(destination_ids, until)
+    fn telegram_paused_until(&self) -> Result<Option<DateTime<Utc>>, PortError> {
+        (**self).telegram_paused_until()
+    }
+
+    fn pause_telegram(&self, until: DateTime<Utc>) -> Result<(), PortError> {
+        (**self).pause_telegram(until)
     }
 
     fn last_sent_at(&self, destination_id: Uuid) -> Result<Option<DateTime<Utc>>, PortError> {

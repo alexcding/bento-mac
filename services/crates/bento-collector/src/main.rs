@@ -271,7 +271,7 @@ async fn run(
             }
             catalog_due = tokio::time::Instant::now() + CATALOG_INTERVAL;
         }
-        reload(&mut config_file, &mut config);
+        let _ = reload(&mut config_file, &mut config);
         // A run in progress is dropped on shutdown, which stops its child processes; anything not
         // yet stored is fetched again next time.
         tokio::select! {
@@ -455,17 +455,22 @@ fn plugin_command(
     Ok(())
 }
 
-pub(crate) fn reload(file: &mut ConfigFile, config: &mut CollectorConfig) {
+/// Loads the config if it changed. Returns whether a config was loaded now.
+pub(crate) fn reload(file: &mut ConfigFile, config: &mut CollectorConfig) -> bool {
     match file.reload_if_changed() {
         Ok(Some(new)) => {
             tracing::info!(sources = new.sources.len(), "config loaded");
             *config = new;
+            true
         }
-        Ok(None) => {}
-        Err(error) => tracing::warn!(
-            error = format!("{error:#}"),
-            "config not reloaded; keeping previous"
-        ),
+        Ok(None) => false,
+        Err(error) => {
+            tracing::warn!(
+                error = format!("{error:#}"),
+                "config not reloaded; keeping previous"
+            );
+            false
+        }
     }
 }
 

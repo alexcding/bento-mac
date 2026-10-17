@@ -4,8 +4,7 @@
 //! secrets are iCloud Keychain items: synchronizable, readable after the first unlock so the
 //! daemon works while the screen is locked, and shared with the user's other Macs, so any of them
 //! can take over collecting without signing in again. Without the entitlement (an ad-hoc build)
-//! they stay in the local login keychain. Local items left from before are moved to iCloud the
-//! first time they are read.
+//! they stay in the local login keychain.
 //!
 //! The app never reads values: it hands them to `bento-collector secrets set` on stdin.
 
@@ -81,7 +80,20 @@ impl KeychainSecrets {
             options.set_access_synchronized(Some(false));
             options
         };
-        let backend = match set_generic_password_options(b"1", probe()) {
+        // Readable after the first unlock like the real items, so a daemon restarted while the
+        // screen is locked still finds its backend.
+        let mut write = probe();
+        write.set_access_control(
+            SecAccessControl::create_with_protection(
+                Some(ProtectionMode::AccessibleAfterFirstUnlockThisDeviceOnly),
+                0,
+            )
+            .map_err(PortError::new)?,
+        );
+        // A probe left by an interrupted run would turn the add into an update; without the
+        // entitlement this delete fails too, which the add then reports.
+        let _ = delete_generic_password_options(probe());
+        let backend = match set_generic_password_options(b"1", write) {
             Ok(()) => {
                 ignore_missing(delete_generic_password_options(probe()))?;
                 Backend::Synced
@@ -97,10 +109,7 @@ impl KeychainSecrets {
         match self.backend()? {
             Backend::Local => set_generic_password_options(value.as_bytes(), self.local(&account))
                 .map_err(PortError::new),
-            Backend::Synced => {
-                self.write_synced(&account, value)?;
-                ignore_missing(delete_generic_password_options(self.local(&account)))
-            }
+            Backend::Synced => self.write_synced(&account, value),
         }
     }
 
@@ -118,13 +127,13 @@ impl KeychainSecrets {
         set_generic_password_options(value.as_bytes(), options).map_err(PortError::new)
     }
 
-    /// Removes a secret everywhere; removing one that is not set is not an error.
+    /// Removes a secret; removing one that is not set is not an error.
     pub fn delete(&self, plugin_id: &str, key: &str) -> Result<(), PortError> {
         let account = Self::account(plugin_id, key);
-        if self.backend()? == Backend::Synced {
-            ignore_missing(delete_generic_password_options(self.synced(&account)))?;
-        }
-        ignore_missing(delete_generic_password_options(self.local(&account)))
+        ignore_missing(delete_generic_password_options(match self.backend()? {
+            Backend::Synced => self.synced(&account),
+            Backend::Local => self.local(&account),
+        }))
     }
 }
 
@@ -146,19 +155,10 @@ fn found(result: security_framework::base::Result<Vec<u8>>) -> Result<Option<Str
 impl SecretStore for KeychainSecrets {
     fn secret(&self, plugin_id: &str, key: &str) -> Result<Option<String>, PortError> {
         let account = Self::account(plugin_id, key);
-        if self.backend()? == Backend::Local {
-            return found(generic_password(self.local(&account)));
-        }
-        if let Some(value) = found(generic_password(self.synced(&account)))? {
-            return Ok(Some(value));
-        }
-        // Saved before iCloud Keychain was available: move it there.
-        let Some(value) = found(generic_password(self.local(&account)))? else {
-            return Ok(None);
-        };
-        self.write_synced(&account, &value)?;
-        ignore_missing(delete_generic_password_options(self.local(&account)))?;
-        Ok(Some(value))
+        found(generic_password(match self.backend()? {
+            Backend::Synced => self.synced(&account),
+            Backend::Local => self.local(&account),
+        }))
     }
 }
 

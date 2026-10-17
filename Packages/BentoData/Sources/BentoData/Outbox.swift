@@ -49,10 +49,12 @@ public struct OutboxIngestor: Sendable {
             .execute(db)
           }
         }
-        try OutboxCursor.upsert {
-          OutboxCursor(instanceID: instanceID, seq: last.seq)
+        // Concurrent runs must never move the cursor backwards.
+        let stored = try OutboxCursor.find(instanceID).fetchOne(db)?.seq ?? 0
+        if last.seq > stored {
+          try OutboxCursor.upsert { OutboxCursor(instanceID: instanceID, seq: last.seq) }
+            .execute(db)
         }
-        .execute(db)
       }
       total += rows.count
       if rows.count < batchSize { break }

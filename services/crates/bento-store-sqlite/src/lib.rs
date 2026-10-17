@@ -10,7 +10,7 @@ use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
-use rusqlite::Connection;
+use rusqlite::{Connection, TransactionBehavior};
 use thiserror::Error;
 
 pub use outbox::OutboxRow;
@@ -34,17 +34,20 @@ pub struct SqliteStore {
 
 impl SqliteStore {
     pub fn open(path: &Path) -> Result<Self, StoreError> {
-        let connection = Connection::open(path)?;
-        connection.pragma_update(None, "journal_mode", "WAL")?;
-        Self::with_connection(connection)
+        Self::with_connection(Connection::open(path)?, true)
     }
 
     pub fn open_in_memory() -> Result<Self, StoreError> {
-        Self::with_connection(Connection::open_in_memory()?)
+        Self::with_connection(Connection::open_in_memory()?, false)
     }
 
-    fn with_connection(mut connection: Connection) -> Result<Self, StoreError> {
+    fn with_connection(mut connection: Connection, wal: bool) -> Result<Self, StoreError> {
+        // Set first: every later statement, including the journal mode switch, may need to wait
+        // for another process.
         connection.busy_timeout(Duration::from_secs(5))?;
+        if wal {
+            enable_wal(&connection)?;
+        }
         connection.pragma_update(None, "foreign_keys", true)?;
         migrate(&mut connection)?;
         Ok(Self {
@@ -61,13 +64,32 @@ impl SqliteStore {
     }
 }
 
+/// Switching to WAL needs an exclusive lock, and SQLite skips the busy handler when two
+/// connections race for it (waiting could deadlock), so retry here instead.
+fn enable_wal(connection: &Connection) -> Result<(), StoreError> {
+    const ATTEMPTS: u32 = 50;
+    for attempt in 1..=ATTEMPTS {
+        match connection.pragma_update(None, "journal_mode", "WAL") {
+            Err(rusqlite::Error::SqliteFailure(error, _))
+                if error.code == rusqlite::ErrorCode::DatabaseBusy && attempt < ATTEMPTS =>
+            {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            result => return Ok(result?),
+        }
+    }
+    unreachable!("the last attempt always returns")
+}
+
 fn migrate(connection: &mut Connection) -> Result<(), StoreError> {
     let supported = i64::try_from(MIGRATIONS.len()).expect("migration count fits in i64");
-    let found: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    // IMMEDIATE takes the write lock before reading the version, so two processes opening a
+    // fresh database at once cannot both run the same migration.
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let found: i64 = transaction.pragma_query_value(None, "user_version", |row| row.get(0))?;
     if found > supported {
         return Err(StoreError::SchemaTooNew { found, supported });
     }
-    let transaction = connection.transaction()?;
     for (version, sql) in (1_i64..)
         .zip(MIGRATIONS)
         .skip(usize::try_from(found).unwrap_or(0))
@@ -113,6 +135,21 @@ mod tests {
         let path = dir.path().join("collector.sqlite");
         drop(SqliteStore::open(&path).unwrap());
         SqliteStore::open(&path).unwrap();
+    }
+
+    #[test]
+    fn concurrent_opens_of_fresh_database_succeed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("collector.sqlite");
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let path = path.clone();
+                std::thread::spawn(move || SqliteStore::open(&path).map(drop))
+            })
+            .collect();
+        for handle in handles {
+            handle.join().unwrap().unwrap();
+        }
     }
 
     #[test]

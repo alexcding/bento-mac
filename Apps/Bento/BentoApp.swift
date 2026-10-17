@@ -23,7 +23,6 @@ struct BentoApp: App {
   var body: some Scene {
     WindowGroup {
       RootView()
-        .task { await collector.start() }
     }
 
     MenuBarExtra("Bento", systemImage: "tray.full") {

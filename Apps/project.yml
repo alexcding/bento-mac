@@ -33,6 +33,11 @@ targets:
         BentoICloudContainer: $(BENTO_ICLOUD_CONTAINER)
     postCompileScripts:
       - name: Embed bento-collector
+        # Always runs: cargo does its own change tracking. Declared outputs make Xcode re-sign
+        # the app bundle after the embedded binary changes.
         basedOnDependencyAnalysis: false
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/bento-collector
+          - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LaunchAgents/io.github.alexcding.bento.collector.plist
         script: |
           exec "${SRCROOT}/Scripts/embed-collector.sh"

@@ -7,16 +7,17 @@ struct SidebarView: View {
     List(selection: Binding($model.selection)) {
       Label("All items", systemImage: "tray.full")
         .badge(model.unreadTotal)
-        .tag(SidebarDestination.all)
+        .sidebarRow(.all, selection: model.selection)
+        .background(QuietSelection())
       Label("Bookmarks", systemImage: "bookmark")
         .badge(model.bookmarkCount)
-        .tag(SidebarDestination.bookmarks)
+        .sidebarRow(.bookmarks, selection: model.selection)
 
-      Section("Channels") {
+      Section {
         ForEach(model.rows) { row in
           ChannelRowView(row: row)
             .badge(row.unreadCount)
-            .tag(SidebarDestination.channel(row.id))
+            .sidebarRow(.channel(row.id), selection: model.selection)
             .contextMenu {
               Button("Settings…") { model.openSettings(row.channel) }
               Button(row.channel.isEnabled ? "Pause" : "Resume") { model.toggleEnabled(row.channel) }
@@ -31,9 +32,12 @@ struct SidebarView: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(.secondary)
+      } header: {
+        Text("Channels").sidebarHeading()
       }
     }
     .listStyle(.sidebar)
+    .sidebarStyle()
   }
 }
 
@@ -41,15 +45,8 @@ private struct ChannelRowView: View {
   let row: ChannelRow
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 2) {
-      Label(row.channel.name, systemImage: "number")
-      Text(
-        "\(row.sourceCount) \(row.sourceCount == 1 ? "source" : "sources") · \(row.channel.isEnabled ? "Enabled" : "Paused")"
-      )
-      .font(.caption)
-      .foregroundStyle(.secondary)
-      .padding(.leading, 26)
-    }
-    .padding(.vertical, 2)
+    Label(row.channel.name, systemImage: "number")
+      .opacity(row.channel.isEnabled ? 1 : 0.5)
+      .help("\(row.sourceCount) \(row.sourceCount == 1 ? "source" : "sources")\(row.channel.isEnabled ? "" : " · Paused")")
   }
 }

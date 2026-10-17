@@ -12,7 +12,7 @@ public struct AppCoordinatorView: View {
   public var body: some View {
     NavigationSplitView {
       SidebarView(model: coordinator.sidebar)
-        .navigationSplitViewColumnWidth(min: 200, ideal: 240)
+        .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: sidebarMaxWidth)
     } content: {
       FeedView(model: coordinator.feed)
         .id(coordinator.feed.destination)
@@ -30,3 +30,9 @@ public struct AppCoordinatorView: View {
     }
   }
 }
+
+#if os(macOS)
+  private let sidebarMaxWidth: CGFloat = 420
+#else
+  private let sidebarMaxWidth: CGFloat? = nil
+#endif

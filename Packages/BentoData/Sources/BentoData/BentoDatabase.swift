@@ -58,7 +58,52 @@ public enum BentoDatabase {
           "translate" INTEGER NOT NULL ON CONFLICT REPLACE DEFAULT 0,
           "summarize" INTEGER NOT NULL ON CONFLICT REPLACE DEFAULT 0,
           "fetchDetail" INTEGER NOT NULL ON CONFLICT REPLACE DEFAULT 0,
-          "isEnabled" INTEGER NOT NULL ON CONFLICT REPLACE DEFAULT 1
+          "isEnabled" INTEGER NOT NULL ON CONFLICT REPLACE DEFAULT 1,
+          "aiTaskKeysJSON" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT '[]',
+          "skipInitialBacklog" INTEGER NOT NULL ON CONFLICT REPLACE DEFAULT 0
+        ) STRICT
+        """
+      )
+      .execute(db)
+      try #sql(
+        """
+        CREATE TABLE "aiProfiles" (
+          "id" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE DEFAULT (uuid()),
+          "name" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT '',
+          "kind" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT 'cli',
+          "preset" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT 'claude',
+          "baseURL" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT '',
+          "model" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT '',
+          "commandJSON" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT '[]',
+          "timeoutSeconds" INTEGER NOT NULL ON CONFLICT REPLACE DEFAULT 240,
+          "position" INTEGER NOT NULL ON CONFLICT REPLACE DEFAULT 0
+        ) STRICT
+        """
+      )
+      .execute(db)
+      try #sql(
+        """
+        CREATE TABLE "aiTasks" (
+          "id" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE DEFAULT (uuid()),
+          "key" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT '',
+          "name" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT '',
+          "profileID" TEXT,
+          "fallbackJSON" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT '[]',
+          "instructions" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT '',
+          "outputsJSON" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT '[]',
+          "maxInputChars" INTEGER NOT NULL ON CONFLICT REPLACE DEFAULT 6500,
+          "batchSize" INTEGER NOT NULL ON CONFLICT REPLACE DEFAULT 2,
+          "position" INTEGER NOT NULL ON CONFLICT REPLACE DEFAULT 0
+        ) STRICT
+        """
+      )
+      .execute(db)
+      try #sql(
+        """
+        CREATE TABLE "appSettings" (
+          "id" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE DEFAULT (uuid()),
+          "maxItemAgeHours" INTEGER NOT NULL ON CONFLICT REPLACE DEFAULT 72,
+          "skipWeekends" INTEGER NOT NULL ON CONFLICT REPLACE DEFAULT 0
         ) STRICT
         """
       )
@@ -213,6 +258,9 @@ extension DependencyValues {
       Bookmark.self,
       BookmarkDetail.self,
       ReadState.self,
+      AiProfile.self,
+      AiTask.self,
+      AppSettings.self,
       containerIdentifier: iCloudContainer
     )
   }

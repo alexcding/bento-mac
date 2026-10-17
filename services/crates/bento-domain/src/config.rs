@@ -102,6 +102,11 @@ mod tests {
         assert_eq!(config.version, 1);
         assert_eq!(config.max_item_age_hours, 48);
         assert_eq!(config.sources.len(), 2);
+        assert!(config.skip_weekends);
+        assert_eq!(config.utc_offset_minutes, 480);
+        assert_eq!(config.ai.profiles.len(), 2);
+        let keywords = config.ai.task("keywords").unwrap();
+        assert_eq!(config.ai.profiles_for(&keywords).len(), 2);
         assert_eq!(config.sources[0].plugin_id, "rss");
         assert!(!config.sources[1].enabled);
     }
@@ -111,7 +116,7 @@ mod tests {
         let mut config: CollectorConfig =
             serde_json::from_str(include_str!("../../../testdata/collector-config.json")).unwrap();
         let source = &mut config.sources[0];
-        assert_eq!(source.task_ids(), ["translate"]);
+        assert_eq!(source.task_ids(), ["translate", "keywords"]);
         source.summarize = true;
         source.ai_tasks = vec!["summarize".into(), "keywords".into()];
         assert_eq!(source.task_ids(), ["translate", "summarize", "keywords"]);

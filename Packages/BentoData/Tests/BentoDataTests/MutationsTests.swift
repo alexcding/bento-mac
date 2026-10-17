@@ -94,4 +94,49 @@ import Testing
       #expect(try ReadState.count().fetchOne(db) == 2)
     }
   }
+
+  @Test func deletingAProfileOrTaskCleansUpReferences() throws {
+    try database.write { db in
+      let main = AiProfile()
+      let backup = AiProfile()
+      try Mutations.saveAiProfile(db, main)
+      try Mutations.saveAiProfile(db, backup)
+      var task = AiTask()
+      task.key = "keywords"
+      task.profileID = main.id
+      task.fallback = [backup.id, main.id]
+      try Mutations.saveAiTask(db, task)
+      let channel = try Mutations.addChannel(db, name: "C")
+      let sourceID = try Mutations.addSource(db, channelID: channel, pluginID: "rss", name: "s", query: "q")
+      var source = try #require(try Source.find(sourceID).fetchOne(db))
+      source.aiTaskKeys = ["keywords", "other"]
+      try Mutations.updateSource(db, source)
+
+      try Mutations.deleteAiProfile(db, id: main.id)
+      let updated = try #require(try AiTask.find(task.id).fetchOne(db))
+      #expect(updated.profileID == nil)
+      #expect(updated.fallback == [backup.id])
+
+      try Mutations.deleteAiTask(db, id: task.id)
+      #expect(try Source.find(sourceID).fetchOne(db)?.aiTaskKeys == ["other"])
+    }
+  }
+
+  @Test func settingsDefaultUntilSaved() throws {
+    try database.write { db in
+      #expect(try Mutations.settings(db).maxItemAgeHours == 72)
+      var settings = try Mutations.settings(db)
+      settings.skipWeekends = true
+      try Mutations.saveSettings(db, settings)
+      #expect(try Mutations.settings(db).skipWeekends)
+    }
+  }
+
+  @Test func sourceLimitLivesInSettingsJSON() {
+    var source = Source(id: UUID())
+    #expect(source.limit == nil)
+    source.limit = 30
+    #expect(source.settingsJSON == #"{"limit":30}"#)
+    #expect(source.limit == 30)
+  }
 }

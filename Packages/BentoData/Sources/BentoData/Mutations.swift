@@ -111,4 +111,41 @@ public enum Mutations {
       .fetchAll(db)
     try setRead(db, itemIDs: unread, true, now: now)
   }
+
+  public static func saveAiProfile(_ db: Database, _ profile: AiProfile) throws {
+    try AiProfile.upsert { profile }.execute(db)
+  }
+
+  /// Deletes a profile and drops it from tasks that used it.
+  public static func deleteAiProfile(_ db: Database, id: AiProfile.ID) throws {
+    for var task in try AiTask.all.fetchAll(db) where task.profileID == id || task.fallback.contains(id) {
+      if task.profileID == id { task.profileID = nil }
+      task.fallback.removeAll { $0 == id }
+      try saveAiTask(db, task)
+    }
+    try AiProfile.find(id).delete().execute(db)
+  }
+
+  public static func saveAiTask(_ db: Database, _ task: AiTask) throws {
+    try AiTask.upsert { task }.execute(db)
+  }
+
+  /// Deletes a task and removes its key from sources.
+  public static func deleteAiTask(_ db: Database, id: AiTask.ID) throws {
+    guard let task = try AiTask.find(id).fetchOne(db) else { return }
+    for var source in try Source.all.fetchAll(db) where source.aiTaskKeys.contains(task.key) {
+      source.aiTaskKeys.removeAll { $0 == task.key }
+      try updateSource(db, source)
+    }
+    try AiTask.find(id).delete().execute(db)
+  }
+
+  /// The settings row, or defaults when none exists yet.
+  public static func settings(_ db: Database) throws -> AppSettings {
+    try AppSettings.find(AppSettings.singletonID).fetchOne(db) ?? AppSettings()
+  }
+
+  public static func saveSettings(_ db: Database, _ settings: AppSettings) throws {
+    try AppSettings.upsert { settings }.execute(db)
+  }
 }

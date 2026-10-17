@@ -5,10 +5,13 @@ import SQLiteData
 /// Writes `collector-config.json` for `bento-collector`, which reloads it when it changes.
 /// Contract: `bento_domain::CollectorConfig`, fixture `services/testdata/collector-config.json`.
 public enum CollectorConfigExporter {
-  public static let defaultMaxItemAgeHours = 72
-
   /// The config as JSON with sorted keys, so unchanged settings produce identical bytes.
-  public static func json(_ db: Database, maxItemAgeHours: Int = defaultMaxItemAgeHours) throws -> Data {
+  /// `utcOffsetMinutes` is the Mac's time zone, for skipping weekends.
+  public static func json(
+    _ db: Database,
+    utcOffsetMinutes: Int = TimeZone.current.secondsFromGMT() / 60
+  ) throws -> Data {
+    let settings = try Mutations.settings(db)
     let channels = try Channel.all.fetchAll(db)
     let links = try ChannelSource.all.fetchAll(db)
     let enabledChannels = Set(channels.filter(\.isEnabled).map(\.id))
@@ -25,17 +28,54 @@ public enum CollectorConfigExporter {
         "translate": source.translate,
         "summarize": source.summarize,
         "fetch_detail": source.fetchDetail,
-        "ai_tasks": [String](),
+        "ai_tasks": source.aiTaskKeys,
+        "skip_initial_backlog": source.skipInitialBacklog,
       ]
     }
     let config: [String: Any] = [
       "version": 1,
-      "max_item_age_hours": maxItemAgeHours,
+      "max_item_age_hours": max(settings.maxItemAgeHours, 1),
+      "skip_weekends": settings.skipWeekends,
+      "utc_offset_minutes": utcOffsetMinutes,
       "sources": sources,
-      // AI profiles and tasks are edited in Settings (phase 2d); until then the presets apply.
-      "ai": ["profiles": [Any](), "tasks": [Any]()],
+      "ai": try ai(db),
     ]
     return try JSONSerialization.data(withJSONObject: config, options: [.sortedKeys, .prettyPrinted])
+  }
+
+  /// Profiles by ID, tasks by key; contract: `bento_domain::ai::AiConfig`.
+  private static func ai(_ db: Database) throws -> [String: Any] {
+    let id = { (uuid: UUID) in uuid.uuidString.lowercased() }
+    let profiles = try AiProfile.order(by: \.position).fetchAll(db).map { profile -> [String: Any] in
+      var entry: [String: Any] = [
+        "id": id(profile.id),
+        "name": profile.name,
+        "kind": profile.kind.rawValue,
+        "timeout_seconds": max(profile.timeoutSeconds, 1),
+      ]
+      if !profile.model.isEmpty { entry["model"] = profile.model }
+      switch profile.kind {
+      case .http:
+        entry["base_url"] = profile.baseURL
+      case .cli:
+        entry["preset"] = profile.preset
+        entry["command"] = (try? JSONSerialization.jsonObject(with: Data(profile.commandJSON.utf8))) as? [String] ?? []
+      }
+      return entry
+    }
+    let tasks = try AiTask.order(by: \.position).fetchAll(db).map { task -> [String: Any] in
+      [
+        "id": task.key.isEmpty ? id(task.id) : task.key,
+        "name": task.name,
+        "profile": task.profileID.map(id) ?? "",
+        "fallback": task.fallback.map(id),
+        "instructions": task.instructions,
+        "outputs": task.outputs.map { ["name": $0.name, "target": $0.target, "description": $0.description] },
+        "max_input_chars": max(task.maxInputChars, 500),
+        "batch_size": max(task.batchSize, 1),
+      ]
+    }
+    return ["profiles": profiles, "tasks": tasks]
   }
 
   /// Writes the config atomically, only when it differs from what is on disk.

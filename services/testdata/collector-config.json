@@ -13,7 +13,10 @@
       "translate": true,
       "summarize": false,
       "fetch_detail": true,
-      "ai_tasks": []
+      "ai_tasks": [
+        "keywords"
+      ],
+      "skip_initial_backlog": false
     },
     {
       "id": "0b8e4d1a-7a35-4d0b-8f2e-5c9d3e6a1b24",
@@ -26,11 +29,50 @@
       "translate": false,
       "summarize": false,
       "fetch_detail": false,
-      "ai_tasks": []
+      "ai_tasks": [],
+      "skip_initial_backlog": false
     }
   ],
   "ai": {
-    "profiles": [],
-    "tasks": []
-  }
+    "profiles": [
+      {
+        "id": "8a5b9c1e-2f3d-4e6a-9b7c-1d2e3f4a5b6c",
+        "name": "DeepSeek",
+        "kind": "http",
+        "base_url": "https://api.deepseek.com",
+        "model": "deepseek-chat",
+        "timeout_seconds": 120
+      },
+      {
+        "id": "9b6c0d2f-3a4e-4f7b-8c8d-2e3f4a5b6c7d",
+        "name": "Claude CLI",
+        "kind": "cli",
+        "preset": "claude",
+        "command": [],
+        "timeout_seconds": 240
+      }
+    ],
+    "tasks": [
+      {
+        "id": "keywords",
+        "name": "Keywords",
+        "profile": "8a5b9c1e-2f3d-4e6a-9b7c-1d2e3f4a5b6c",
+        "fallback": [
+          "9b6c0d2f-3a4e-4f7b-8c8d-2e3f4a5b6c7d"
+        ],
+        "instructions": "List three keywords.",
+        "outputs": [
+          {
+            "name": "keywords",
+            "target": "summary",
+            "description": "Three comma-separated keywords."
+          }
+        ],
+        "max_input_chars": 4000,
+        "batch_size": 3
+      }
+    ]
+  },
+  "skip_weekends": true,
+  "utc_offset_minutes": 480
 }

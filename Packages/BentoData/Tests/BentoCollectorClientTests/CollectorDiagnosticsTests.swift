@@ -65,3 +65,25 @@ import Testing
     #expect(try CollectorDiagnostics.logTail(url: missing).isEmpty)
   }
 }
+
+@Suite struct PluginCatalogTests {
+  @Test func readsTheCatalogByName() throws {
+    let url = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString).sqlite")
+    try DatabaseQueue(path: url.path).write { db in
+      for migration in try collectorMigrations() { try db.execute(sql: migration) }
+      try db.execute(
+        sql: """
+          INSERT INTO plugins VALUES
+            ('x', 'X (Twitter)', '0.1.0', '/p/x', '{"id":"x"}', '[{"name":"twitter-cli","installed":false}]', NULL, 1),
+            ('error:/p/bad', 'bad', '', '/p/bad', '{}', '[]', 'protocol 9 is not supported', 1)
+          """
+      )
+    }
+
+    let plugins = try CollectorDiagnostics.plugins(collectorURL: url)
+
+    #expect(plugins.map(\.id) == ["error:/p/bad", "x"])
+    #expect(plugins[0].error == "protocol 9 is not supported")
+    #expect(String(decoding: plugins[1].requirements, as: UTF8.self).contains("twitter-cli"))
+  }
+}

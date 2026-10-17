@@ -26,6 +26,118 @@ public nonisolated struct Source: Hashable, Identifiable, Sendable {
   public var summarize = false
   public var fetchDetail = false
   public var isEnabled = true
+  /// IDs of extra AI tasks (`AiTask.key`) run on new items, as a JSON array.
+  public var aiTaskKeysJSON = "[]"
+  /// On the first fetch, mark existing posts as seen instead of storing them.
+  public var skipInitialBacklog = false
+
+  public var aiTaskKeys: [String] {
+    get { (try? JSONDecoder().decode([String].self, from: Data(aiTaskKeysJSON.utf8))) ?? [] }
+    set { aiTaskKeysJSON = String(decoding: (try? JSONEncoder().encode(newValue)) ?? Data("[]".utf8), as: UTF8.self) }
+  }
+
+  /// `settingsJSON["limit"]`, the items per fetch the plugin asks for.
+  public var limit: Int? {
+    get { settings["limit"] as? Int }
+    set {
+      var settings = settings
+      settings["limit"] = newValue
+      let data = (try? JSONSerialization.data(withJSONObject: settings, options: [.sortedKeys])) ?? Data("{}".utf8)
+      settingsJSON = String(decoding: data, as: UTF8.self)
+    }
+  }
+
+  private var settings: [String: Any] {
+    (try? JSONSerialization.jsonObject(with: Data(settingsJSON.utf8))) as? [String: Any] ?? [:]
+  }
+}
+
+/// A saved connection to an AI service. The API key of an HTTP profile is a Keychain secret
+/// (`ai.<id>`) on the Mac, never synced.
+@Table("aiProfiles")
+public nonisolated struct AiProfile: Hashable, Identifiable, Sendable {
+  public let id: UUID
+  public var name = ""
+  public var kind: Kind = .cli
+  /// `codex`, `claude` or `custom`, for CLI profiles.
+  public var preset = "claude"
+  /// For HTTP profiles: an OpenAI-compatible endpoint.
+  public var baseURL = ""
+  public var model = ""
+  /// For custom CLI profiles: the command as a JSON array.
+  public var commandJSON = "[]"
+  public var timeoutSeconds = 240
+  public var position = 0
+
+  public init(id: UUID = UUID()) {
+    self.id = id
+  }
+
+  public enum Kind: String, QueryBindable, Sendable, CaseIterable {
+    case cli
+    case http
+  }
+}
+
+/// One use of AI. `key` is what sources refer to: `translate` and `summarize` override the
+/// presets; other tasks use their ID.
+@Table("aiTasks")
+public nonisolated struct AiTask: Hashable, Identifiable, Sendable {
+  public let id: UUID
+  public var key = ""
+  public var name = ""
+  /// `AiProfile.id`; nil means the first profile.
+  public var profileID: AiProfile.ID?
+  /// Fallback profile IDs as a JSON array.
+  public var fallbackJSON = "[]"
+  public var instructions = ""
+  /// `[{name, target, description}]` as JSON; targets: translated_title, summary, text, detail.
+  public var outputsJSON = "[]"
+  public var maxInputChars = 6_500
+  public var batchSize = 2
+  public var position = 0
+
+  public init(id: UUID = UUID()) {
+    self.id = id
+  }
+
+  /// Output targets a task can fill.
+  public static let targets = ["translated_title", "summary", "text", "detail"]
+
+  public struct Output: Codable, Hashable, Sendable {
+    public var name: String
+    public var target: String
+    public var description: String
+
+    public init(name: String, target: String, description: String) {
+      self.name = name
+      self.target = target
+      self.description = description
+    }
+  }
+
+  public var outputs: [Output] {
+    get { (try? JSONDecoder().decode([Output].self, from: Data(outputsJSON.utf8))) ?? [] }
+    set { outputsJSON = String(decoding: (try? JSONEncoder().encode(newValue)) ?? Data("[]".utf8), as: UTF8.self) }
+  }
+
+  public var fallback: [AiProfile.ID] {
+    get { (try? JSONDecoder().decode([UUID].self, from: Data(fallbackJSON.utf8))) ?? [] }
+    set { fallbackJSON = String(decoding: (try? JSONEncoder().encode(newValue)) ?? Data("[]".utf8), as: UTF8.self) }
+  }
+}
+
+/// App-wide collector settings. One row, with `AppSettings.singletonID`.
+@Table("appSettings")
+public nonisolated struct AppSettings: Hashable, Identifiable, Sendable {
+  public static let singletonID = UUID(uuidString: "00000000-0000-4000-8000-0000000000a1")!
+  public let id: UUID
+  public var maxItemAgeHours = 72
+  public var skipWeekends = false
+
+  public init(id: UUID = AppSettings.singletonID) {
+    self.id = id
+  }
 }
 
 @Table("channelSources")

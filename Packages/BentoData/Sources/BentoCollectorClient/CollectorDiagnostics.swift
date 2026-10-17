@@ -88,3 +88,44 @@ public enum CollectorDiagnostics {
     return Array(lines.suffix(maxLines))
   }
 }
+
+/// One row of the collector's `plugins` table.
+public struct PluginCatalogEntry: Hashable, Sendable {
+  public let id: String
+  public let name: String
+  public let version: String
+  /// `plugin.json` as JSON (`{}` when the plugin failed to load).
+  public let manifest: Data
+  /// JSON array of `{name, installed, detail, install}`.
+  public let requirements: Data
+  public let error: String?
+}
+
+/// Contract: `services/crates/bento-store-sqlite/src/migrations/004_plugins.sql`.
+@Table("plugins")
+nonisolated struct PluginRow {
+  @Column(primaryKey: true)
+  let id: String
+  var name: String
+  var version: String
+  var directory: String
+  var manifest: String
+  var requirements: String
+  var error: String?
+}
+
+extension CollectorDiagnostics {
+  /// Every plugin the collector loaded or failed to load, sorted by name as people read it.
+  public static func plugins(collectorURL: URL) throws -> [PluginCatalogEntry] {
+    guard FileManager.default.fileExists(atPath: collectorURL.path) else { return [] }
+    let rows = try DatabaseQueue(path: collectorURL.path).read { db in
+      try PluginRow.all.fetchAll(db)
+    }
+    return rows.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }.map {
+      PluginCatalogEntry(
+        id: $0.id, name: $0.name, version: $0.version, manifest: Data($0.manifest.utf8),
+        requirements: Data($0.requirements.utf8), error: $0.error
+      )
+    }
+  }
+}

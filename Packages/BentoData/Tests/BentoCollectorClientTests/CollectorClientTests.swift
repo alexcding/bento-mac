@@ -13,8 +13,8 @@ import Testing
     database = try BentoDatabase.open(at: url, iCloudContainer: nil)
   }
 
-  func exported(maxItemAgeHours: Int = 72) throws -> [String: Any] {
-    let data = try database.read { try CollectorConfigExporter.json($0, maxItemAgeHours: maxItemAgeHours) }
+  func exported() throws -> [String: Any] {
+    let data = try database.read { try CollectorConfigExporter.json($0, utcOffsetMinutes: 480) }
     return try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
   }
 
@@ -47,7 +47,38 @@ import Testing
       with: Data(contentsOf: testdata.appending(path: "collector-config.json"))
     )
 
-    let config = try exported(maxItemAgeHours: 48)
+    try database.write { db in
+      var settings = AppSettings()
+      settings.maxItemAgeHours = 48
+      settings.skipWeekends = true
+      try Mutations.saveSettings(db, settings)
+      var deepseek = AiProfile(id: UUID(uuidString: "8a5b9c1e-2f3d-4e6a-9b7c-1d2e3f4a5b6c")!)
+      deepseek.name = "DeepSeek"
+      deepseek.kind = .http
+      deepseek.baseURL = "https://api.deepseek.com"
+      deepseek.model = "deepseek-chat"
+      deepseek.timeoutSeconds = 120
+      var claude = AiProfile(id: UUID(uuidString: "9b6c0d2f-3a4e-4f7b-8c8d-2e3f4a5b6c7d")!)
+      claude.name = "Claude CLI"
+      claude.position = 1
+      try Mutations.saveAiProfile(db, deepseek)
+      try Mutations.saveAiProfile(db, claude)
+      var task = AiTask()
+      task.key = "keywords"
+      task.name = "Keywords"
+      task.profileID = deepseek.id
+      task.fallback = [claude.id]
+      task.instructions = "List three keywords."
+      task.outputs = [.init(name: "keywords", target: "summary", description: "Three comma-separated keywords.")]
+      task.maxInputChars = 4000
+      task.batchSize = 3
+      try Mutations.saveAiTask(db, task)
+      var source = try #require(try Source.find(UUID(uuidString: "6f1c2a52-1d0e-4c7a-9a52-2f7e1b1c9d10")!).fetchOne(db))
+      source.aiTaskKeys = ["keywords"]
+      try Mutations.updateSource(db, source)
+    }
+
+    let config = try exported()
 
     // Compare sources by ID: the exporter orders them by ID, the fixture by hand.
     func byID(_ object: Any) -> [String: NSDictionary] {

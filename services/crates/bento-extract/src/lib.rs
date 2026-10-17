@@ -54,9 +54,13 @@ impl ArticleExtractor {
         {
             return Ok(None);
         }
-        let bytes = response.bytes().await?;
-        if bytes.len() > MAX_PAGE_BYTES {
-            return Ok(None);
+        let mut response = response;
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await? {
+            bytes.extend_from_slice(&chunk);
+            if bytes.len() > MAX_PAGE_BYTES {
+                return Ok(None);
+            }
         }
         Ok(markdown_from_html(&String::from_utf8_lossy(&bytes), url))
     }

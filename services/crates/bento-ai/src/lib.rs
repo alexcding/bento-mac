@@ -8,6 +8,9 @@ use std::time::Duration;
 use async_trait::async_trait;
 use bento_app::{AiError, AiProvider, AiRequest, SecretStore};
 use bento_domain::{AiProfile, AiProfileKind, CliPreset};
+use nix::sys::signal::{Signal, killpg};
+use nix::unistd::Pid;
+use regex::Regex;
 use serde_json::{Value, json};
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
@@ -39,8 +42,7 @@ impl AiProviders {
             .secret(SECRET_NAMESPACE, &profile.id)
             .map_err(|e| AiError::Failed(e.to_string()))?
             .ok_or_else(|| AiError::Auth(format!("no API key set for {}", profile.name)))?;
-        let body = json!({
-            "model": profile.model.as_deref().unwrap_or("default"),
+        let mut body = json!({
             "messages": [
                 {"role": "system", "content": format!("{}\n\nJSON Schema for the answer:\n{}", request.instructions, request.schema)},
                 {"role": "user", "content": request.input},
@@ -48,6 +50,9 @@ impl AiProviders {
             "response_format": {"type": "json_object"},
             "temperature": 0.2,
         });
+        if let Some(model) = &profile.model {
+            body["model"] = json!(model);
+        }
         let response = self
             .http
             .post(format!(
@@ -208,6 +213,9 @@ async fn cli(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true)
+        // Its own process group, so a timeout can stop everything it started (wrappers spawn the
+        // real model process as a child).
+        .process_group(0)
         .spawn()
         .map_err(|e| match e.kind() {
             std::io::ErrorKind::NotFound => {
@@ -220,17 +228,24 @@ async fn cli(
     let write = async move {
         let _ = stdin.write_all(prompt.as_bytes()).await;
     };
-    let output = tokio::time::timeout(Duration::from_secs(profile.timeout_seconds), async {
+    let group = child
+        .id()
+        .and_then(|pid| i32::try_from(pid).ok())
+        .map(Pid::from_raw);
+    let Ok(output) = tokio::time::timeout(Duration::from_secs(profile.timeout_seconds), async {
         tokio::join!(write, child.wait_with_output()).1
     })
     .await
-    .map_err(|_| {
-        AiError::Failed(format!(
+    else {
+        if let Some(group) = group {
+            let _ = killpg(group, Signal::SIGKILL);
+        }
+        return Err(AiError::Failed(format!(
             "{} timed out after {} s",
             profile.name, profile.timeout_seconds
-        ))
-    })?
-    .map_err(failed)?;
+        )));
+    };
+    let output = output.map_err(failed)?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     if !output.status.success() {
@@ -273,20 +288,28 @@ async fn cli(
     }
 }
 
-/// Treats login, key and permission problems as authentication failures.
+/// Treats login, key and permission problems as authentication failures. Status codes count only
+/// next to words like "HTTP" or "status", so a request ID or token count containing `401` does not.
 fn classify(message: String) -> AiError {
     let lower = message.to_lowercase();
-    let auth = [
-        "login",
-        "log in",
+    let phrases = [
+        "not logged in",
+        "please log in",
+        "please login",
+        "login required",
+        "log in again",
         "unauthorized",
-        "authentication",
-        "api key",
-        "401",
-        "403",
-        "not logged",
+        "authentication failed",
+        "authentication error",
+        "invalid api key",
+        "invalid x-api-key",
+        "incorrect api key",
+        "api key is missing",
+        "permission denied",
+        "forbidden",
     ];
-    if auth.iter().any(|needle| lower.contains(needle)) {
+    let status = Regex::new(r"\b(?:http|status(?: code)?|error)[ :]*40[13]\b").expect("valid");
+    if phrases.iter().any(|p| lower.contains(p)) || status.is_match(&lower) {
         AiError::Auth(message)
     } else {
         AiError::Failed(message)
@@ -524,6 +547,78 @@ mod tests {
                 .any(|w| w == ["--json-schema", "{\"a\":1}"])
         );
         assert!(claude.windows(2).any(|w| w == ["--tools", ""]), "no tools");
+    }
+
+    #[test]
+    fn classifies_only_real_authentication_problems() {
+        for auth in [
+            "Error: Not logged in. Run login.",
+            "HTTP 401 Unauthorized",
+            "status code 403",
+            "Invalid API key",
+        ] {
+            assert!(matches!(classify(auth.into()), AiError::Auth(_)), "{auth}");
+        }
+        for other in [
+            "prompt is too long: 214013 tokens > 200000",
+            "request req_8a401f failed",
+            "rate limited (429)",
+        ] {
+            assert!(
+                matches!(classify(other.into()), AiError::Failed(_)),
+                "{other}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn timeout_kills_the_whole_process_group() {
+        let dir = tempfile::tempdir().unwrap();
+        let pid_file = dir.path().join("child.pid");
+        let script = format!(
+            "cat >/dev/null; sleep 30 & echo $! > '{}'; wait",
+            pid_file.display()
+        );
+        let mut profile = cli_profile(&["/bin/sh", "-c", &script]);
+        profile.timeout_seconds = 1;
+        let providers = AiProviders::new(Arc::new(Keys(None))).unwrap();
+
+        let error = providers.complete(&profile, &request()).await.unwrap_err();
+
+        assert!(error.to_string().contains("timed out"));
+        let child: i32 = std::fs::read_to_string(&pid_file)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let alive = nix::sys::signal::kill(Pid::from_raw(child), None).is_ok();
+        assert!(!alive, "the grandchild was killed with the group");
+    }
+
+    #[tokio::test]
+    async fn http_leaves_out_an_unset_model() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({"choices": [{"message": {"content": "{}"}}]})),
+            )
+            .mount(&server)
+            .await;
+        let mut profile = http_profile(&server.uri());
+        profile.model = None;
+        AiProviders::new(Arc::new(Keys(Some("sk"))))
+            .unwrap()
+            .complete(&profile, &request())
+            .await
+            .unwrap();
+
+        let body: Value = server.received_requests().await.unwrap()[0]
+            .body_json()
+            .unwrap();
+
+        assert!(body.get("model").is_none(), "{body}");
     }
 
     #[test]

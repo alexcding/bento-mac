@@ -129,28 +129,36 @@ impl AiRunner {
         let mut failures = Vec::new();
         for range in batches(task, items) {
             let batch = &mut items[range];
-            let mut result = self
+            let first = self
                 .complete(task, profiles, &request(task, batch, None))
                 .await;
-            if result.is_err()
-                && batch.iter().any(|i| {
-                    i.body_markdown
-                        .as_ref()
-                        .is_some_and(|d| d.chars().count() > REDUCED_DETAIL_CHARS)
-                })
-            {
-                result = self
+            let error = match first {
+                Ok(answer) => {
+                    apply(task, &answer, batch, Context::Full);
+                    continue;
+                }
+                Err(error) => error,
+            };
+            let has_long_detail = batch.iter().any(|i| {
+                i.body_markdown
+                    .as_ref()
+                    .is_some_and(|d| d.chars().count() > REDUCED_DETAIL_CHARS)
+            });
+            // Authentication failures and paused profiles would fail again; shorter input cannot help.
+            if has_long_detail
+                && error.retryable
+                && let Ok(answer) = self
                     .complete(
                         task,
                         profiles,
                         &request(task, batch, Some(REDUCED_DETAIL_CHARS)),
                     )
-                    .await;
+                    .await
+            {
+                apply(task, &answer, batch, Context::Reduced);
+                continue;
             }
-            match result {
-                Ok(answer) => apply(task, &answer, batch),
-                Err(error) => failures.push(format!("{}: {error}", task.id)),
-            }
+            failures.push(format!("{}: {}", task.id, error.message));
         }
         failures
     }
@@ -160,9 +168,12 @@ impl AiRunner {
         task: &AiTask,
         profiles: &[&AiProfile],
         request: &AiRequest,
-    ) -> Result<Value, String> {
-        let mut last_error =
-            String::from("every profile is paused after an authentication failure");
+    ) -> Result<Value, Failure> {
+        let mut failure = Failure {
+            message: "every profile is paused after an authentication failure".into(),
+            retryable: false,
+        };
+        let mut first_error = None;
         for profile in profiles {
             let now = self.clock.now();
             if self
@@ -194,13 +205,33 @@ impl AiRunner {
                             .lock()
                             .expect("not poisoned")
                             .insert(profile.id.clone(), now + AUTH_PAUSE);
+                    } else {
+                        failure.retryable = true;
                     }
-                    last_error = format!("{}: {error}", profile.name);
+                    first_error.get_or_insert_with(|| format!("{}: {error}", profile.name));
                 }
             }
         }
-        Err(last_error)
+        if let Some(message) = first_error {
+            failure.message = message;
+        }
+        Err(failure)
     }
+}
+
+/// Why no profile completed a request.
+struct Failure {
+    /// The first profile error, which is the most informative one.
+    message: String,
+    /// At least one profile failed for a reason other than authentication.
+    retryable: bool,
+}
+
+/// Whether the request carried the full detail or a shortened one.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Context {
+    Full,
+    Reduced,
 }
 
 /// Consecutive index ranges holding at most `batch_size` items and, beyond the first item,
@@ -275,7 +306,9 @@ fn schema(task: &AiTask) -> Value {
     })
 }
 
-fn apply(task: &AiTask, answer: &Value, batch: &mut [NormalizedItem]) {
+/// Writes answers into the batch. A `Detail` output from a shortened request is dropped, so the
+/// full detail is never replaced by a version of its first part.
+fn apply(task: &AiTask, answer: &Value, batch: &mut [NormalizedItem], context: Context) {
     let Some(entries) = answer.get("items").and_then(Value::as_array) else {
         return;
     };
@@ -301,6 +334,7 @@ fn apply(task: &AiTask, answer: &Value, batch: &mut [NormalizedItem]) {
                 OutputTarget::TranslatedTitle => item.item.translated_title = Some(value),
                 OutputTarget::Summary => item.item.summary = Some(value),
                 OutputTarget::Text => item.item.text = value,
+                OutputTarget::Detail if context == Context::Reduced => {}
                 OutputTarget::Detail => item.body_markdown = Some(value),
             }
         }
@@ -353,8 +387,13 @@ mod tests {
             let items: Vec<Value> = input
                 .iter()
                 .map(|i| {
+                    let detail = if i["detail"].is_null() {
+                        ""
+                    } else {
+                        "translated detail"
+                    };
                     json!({"id": i["id"], "title": format!("T:{}", i["text"].as_str().unwrap()),
-                                "detail": "", "summary": format!("S by {}", profile.id)})
+                                "detail": detail, "summary": format!("S by {}", profile.id)})
                 })
                 .collect();
             Ok(json!({"items": items}))
@@ -530,6 +569,49 @@ mod tests {
         ));
         assert_eq!(report.ai_failures, ["translate: p: down"]);
         assert_eq!(batch[0].item.translated_title, None);
+    }
+
+    #[test]
+    fn full_answers_replace_the_detail() {
+        let provider = Arc::new(FakeProvider::default());
+        let mut batch = items(&["a"]);
+        batch[0].body_markdown = Some("short original".into());
+
+        block_on(enrichment(provider, Arc::new(Calls::default())).enrich(
+            &source(true, false),
+            &ai(&["p"]),
+            &mut batch,
+        ));
+
+        assert_eq!(batch[0].body_markdown.as_deref(), Some("translated detail"));
+    }
+
+    #[test]
+    fn auth_failures_skip_the_retry_and_report_the_real_error() {
+        let provider = Arc::new(FakeProvider {
+            failures: HashMap::from([("p".to_owned(), AiError::Auth("HTTP 401: bad key".into()))]),
+            ..Default::default()
+        });
+        let mut batch = items(&["a"]);
+        batch[0].body_markdown = Some("x".repeat(5_000));
+
+        let report = block_on(
+            enrichment(provider.clone(), Arc::new(Calls::default())).enrich(
+                &source(true, false),
+                &ai(&["p"]),
+                &mut batch,
+            ),
+        );
+
+        assert_eq!(
+            report.ai_failures,
+            ["translate: p: authentication failed: HTTP 401: bad key"]
+        );
+        assert_eq!(
+            provider.requests.lock().unwrap().len(),
+            1,
+            "no reduced retry after an auth failure"
+        );
     }
 
     #[test]

@@ -114,14 +114,17 @@ fn rpc(error: InvocationError) -> Failure {
     other(error)
 }
 
-/// Maps an error from the send itself. A lost connection may come after Telegram posted the
-/// message, so it is reported as uncertain and never retried.
+/// Maps an error from the send itself. Only a definite refusal from Telegram (a 4xx answer)
+/// means nothing was posted; a lost connection, an unreadable reply or a server-side failure may
+/// come after the message went out, so those are reported as uncertain and never retried.
 fn send_error(error: InvocationError) -> Failure {
     match error {
-        InvocationError::Io(_) | InvocationError::Dropped(_) => Failure::uncertain(
-            "the connection was lost while sending (not retried: it may have been posted)",
-        ),
-        other => rpc(other),
+        InvocationError::Rpc(rpc_error) if (400..500).contains(&rpc_error.code) => {
+            rpc(InvocationError::Rpc(rpc_error))
+        }
+        other => Failure::uncertain(format!(
+            "the send may have been posted, so it is not retried ({other})"
+        )),
     }
 }
 
@@ -463,7 +466,16 @@ async fn resolve(
     chat: &ChatRef,
 ) -> Result<grammers_client::session::types::PeerRef, Failure> {
     match chat {
-        ChatRef::SavedMessages => Ok(tl::types::InputPeerSelf {}.into()),
+        // A real ID, not `InputPeerSelf`: grammers needs one to read a send's short reply, and a
+        // fresh process has no cached self peer.
+        ChatRef::SavedMessages => client
+            .get_me()
+            .await
+            .map_err(rpc)?
+            .to_ref()
+            .await
+            .map_err(other)?
+            .ok_or_else(|| Failure::other("cannot open Saved Messages")),
         ChatRef::Username(name) => {
             let peer = client.resolve_username(name).await.map_err(rpc)?;
             let peer = peer.ok_or_else(|| Failure::rejected(format!("@{name} does not exist")))?;

@@ -1,11 +1,14 @@
 #!/bin/sh
-# Xcode build phase: builds bento-collector for every architecture in $ARCHS and embeds it, with
-# its LaunchAgent plist, in the app. The outputs are declared in project.yml so Xcode re-signs the
-# app bundle afterwards.
+# Xcode build phase: builds bento-collector and the bundled protocol plugins for every
+# architecture in $ARCHS and embeds them, with the collector's LaunchAgent plist, in the app. The
+# outputs are declared in project.yml so Xcode re-signs the app bundle afterwards.
 set -eu
 
 export PATH="${HOME}/.cargo/bin:/opt/homebrew/opt/rustup/bin:/opt/homebrew/bin:/usr/local/bin:${PATH}"
 command -v cargo >/dev/null || { echo "error: cargo not found; install Rust (brew install rustup)"; exit 1; }
+
+# The daemon finds plugin executables next to itself in Contents/MacOS.
+binaries="bento-collector bento-plugin-bilibili bento-plugin-telegram"
 
 services="${SRCROOT}/../services"
 if [ "${CONFIGURATION}" = "Release" ]; then
@@ -16,7 +19,7 @@ else
   profile_flag=
 fi
 
-slices=""
+triples=""
 for arch in ${ARCHS}; do
   case "${arch}" in
     arm64) triple=aarch64-apple-darwin ;;
@@ -24,16 +27,16 @@ for arch in ${ARCHS}; do
     *) echo "error: unsupported architecture ${arch}"; exit 1 ;;
   esac
   rustup target add "${triple}" >/dev/null 2>&1 || true
+  packages=""
+  for binary in ${binaries}; do packages="${packages} -p ${binary}"; done
   # shellcheck disable=SC2086
-  cargo build --manifest-path "${services}/Cargo.toml" -p bento-collector --target "${triple}" ${profile_flag}
-  slices="${slices} ${services}/target/${triple}/${profile}/bento-collector"
+  cargo build --manifest-path "${services}/Cargo.toml" ${packages} --target "${triple}" ${profile_flag}
+  triples="${triples} ${triple}"
 done
 
 macos_dir="${TARGET_BUILD_DIR}/${EXECUTABLE_FOLDER_PATH}"
 agents_dir="${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}/Library/LaunchAgents"
 mkdir -p "${macos_dir}" "${agents_dir}"
-# shellcheck disable=SC2086
-lipo -create ${slices} -output "${macos_dir}/bento-collector"
 cp "${SRCROOT}/Bento/LaunchAgents/io.github.alexcding.bento.collector.plist" "${agents_dir}/"
 
 # Nested executables are signed before Xcode signs the app bundle. Notarization needs a secure
@@ -44,4 +47,11 @@ if [ "${CONFIGURATION}" = "Release" ] && [ "${identity}" != "-" ]; then
 else
   timestamp=--timestamp=none
 fi
-codesign --force --options runtime "${timestamp}" --sign "${identity}" "${macos_dir}/bento-collector"
+
+for binary in ${binaries}; do
+  slices=""
+  for triple in ${triples}; do slices="${slices} ${services}/target/${triple}/${profile}/${binary}"; done
+  # shellcheck disable=SC2086
+  lipo -create ${slices} -output "${macos_dir}/${binary}"
+  codesign --force --options runtime "${timestamp}" --sign "${identity}" "${macos_dir}/${binary}"
+done

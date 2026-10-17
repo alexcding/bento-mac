@@ -51,6 +51,9 @@ pub enum Auth {
     None,
     /// Values the user enters in Settings; stored in the Keychain.
     Secrets { fields: Vec<SecretField> },
+    /// A login the plugin drives step by step (`auth/begin`, `auth/step`): QR codes, phone codes.
+    /// `secrets` lists the Keychain keys it saves and receives back.
+    Interactive { secrets: Vec<String> },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,7 +72,25 @@ pub struct SourceSpec {
     /// Placeholder shown in the query field, e.g. `@handle, x.com URL or search terms`.
     #[serde(default)]
     pub query_hint: Option<String>,
-    pub cli: CliSource,
+    /// Exactly one of `cli` and `protocol`.
+    #[serde(default)]
+    pub cli: Option<CliSource>,
+    #[serde(default)]
+    pub protocol: Option<ProtocolSource>,
+}
+
+/// A source backed by a plugin executable speaking the Bento plugin protocol.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProtocolSource {
+    /// File name, found in the plugin's `bin/`, next to the daemon, or on PATH.
+    pub executable: String,
+    #[serde(default = "default_protocol_timeout_seconds")]
+    pub timeout_seconds: u64,
+}
+
+fn default_protocol_timeout_seconds() -> u64 {
+    60
 }
 
 /// A source backed by an external command: pick a command by matching the query, run it, map its

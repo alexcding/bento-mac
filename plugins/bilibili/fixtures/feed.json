@@ -1,0 +1,99 @@
+{
+  "code": 0,
+  "message": "0",
+  "data": {
+    "offset": "next123",
+    "items": [
+      {
+        "id_str": "900000000000000001",
+        "type": "DYNAMIC_TYPE_AV",
+        "modules": {
+          "module_author": {
+            "name": "影视飓风",
+            "face": "//i0.hdslb.com/bfs/face/a.jpg",
+            "pub_ts": 1792141200
+          },
+          "module_dynamic": {
+            "desc": {
+              "text": "新视频来了"
+            },
+            "major": {
+              "type": "MAJOR_TYPE_ARCHIVE",
+              "archive": {
+                "bvid": "BV1xx411c7mD",
+                "title": "我们测试了最新相机",
+                "desc": "视频简介",
+                "cover": "http://i1.hdslb.com/bfs/archive/c.jpg",
+                "duration_text": "12:34"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id_str": "900000000000000002",
+        "type": "DYNAMIC_TYPE_DRAW",
+        "modules": {
+          "module_author": {
+            "name": "画师",
+            "face": "https://i0.hdslb.com/bfs/face/b.jpg",
+            "pub_ts": 1792141300
+          },
+          "module_dynamic": {
+            "desc": null,
+            "major": {
+              "type": "MAJOR_TYPE_OPUS",
+              "opus": {
+                "summary": {
+                  "text": "今天画的猫\n第二行"
+                },
+                "pics": [
+                  {
+                    "url": "https://i0.hdslb.com/bfs/new_dyn/p1.png"
+                  },
+                  {
+                    "url": "https://i0.hdslb.com/bfs/new_dyn/p2.png"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "id_str": "900000000000000003",
+        "type": "DYNAMIC_TYPE_FORWARD",
+        "modules": {
+          "module_author": {
+            "name": "转发者",
+            "face": "https://i0.hdslb.com/bfs/face/c.jpg",
+            "pub_ts": 1792141400
+          },
+          "module_dynamic": {
+            "desc": {
+              "text": "推荐这个"
+            },
+            "major": null
+          }
+        },
+        "orig": {
+          "id_str": "900000000000000004",
+          "type": "DYNAMIC_TYPE_WORD",
+          "modules": {
+            "module_author": {
+              "name": "原作者",
+              "face": "https://i0.hdslb.com/bfs/face/d.jpg",
+              "pub_ts": 1792140000
+            },
+            "module_dynamic": {
+              "desc": {
+                "text": "原始动态内容"
+              },
+              "major": null
+            }
+          }
+        }
+      }
+    ]
+  }
+}

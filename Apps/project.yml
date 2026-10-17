@@ -45,6 +45,8 @@ targets:
         basedOnDependencyAnalysis: false
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/bento-collector
+          - $(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/bento-plugin-bilibili
+          - $(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/bento-plugin-telegram
           - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LaunchAgents/io.github.alexcding.bento.collector.plist
         script: |
           exec "${SRCROOT}/Scripts/embed-collector.sh"

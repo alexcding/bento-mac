@@ -1,0 +1,25 @@
+[package]
+name = "bento-plugin-telegram"
+workspace = "../../services"
+description = "Bento protocol plugin: public Telegram channels through their web preview."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "bento-plugin-telegram"
+path = "src/main.rs"
+
+[dependencies]
+bento-domain.workspace = true
+chrono.workspace = true
+reqwest.workspace = true
+scraper.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+wiremock.workspace = true
+
+[lints]
+workspace = true

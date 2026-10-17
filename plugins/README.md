@@ -9,6 +9,18 @@ Each folder is one plugin. The daemon loads bundled plugins from the app (`Conte
 | `mapping.json` | How the command's output becomes items: RFC 9535 JSONPath expressions, each a single path or an ordered list of fallbacks. A value without a leading `$` is a template where `{$.path}` is substituted. |
 | `settings.schema.json` | JSON Schema for the per-source settings the app shows (for example `limit`). |
 | `fixtures/` | Sample command output, used by the tests and by `bento-collector plugin test <folder> <fixture>`. |
+| `src/`, `Cargo.toml` | Code, for protocol plugins (see [PROTOCOL.md](PROTOCOL.md)). |
+
+## Bundled plugins
+
+| Plugin | Kind | Notes |
+|---|---|---|
+| `x` | CLI (`twitter-cli`) | timeline, `@user`, post links, search; cookies in Settings |
+| `reddit` | CLI (`rdt-cli`) | popular, all, `r/sub`, threads, search |
+| `youtube` | CLI (`yt-dlp`) | channel, playlist or video URLs, search |
+| `xiaohongshu` | CLI (`xhs`) | trending, search |
+| `bilibili` | protocol | following feed; sign in with a QR code |
+| `telegram` | protocol | public channels via `t.me/s`; no login (private channels come with account login) |
 
 ## Source commands
 

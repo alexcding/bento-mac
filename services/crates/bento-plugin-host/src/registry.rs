@@ -9,6 +9,7 @@ use bento_app::{FetcherRegistry, SecretStore, SourceFetcher};
 use crate::fetcher::{CliSourceFetcher, compile_routes};
 use crate::manifest::{Capability, Manifest, PROTOCOL_VERSION};
 use crate::mapping::Mapping;
+use crate::protocol::ProtocolPlugin;
 
 /// IDs of sources built into the daemon; plugins cannot use them.
 pub const RESERVED_IDS: &[&str] = &["rss"];
@@ -17,7 +18,10 @@ pub const RESERVED_IDS: &[&str] = &["rss"];
 pub struct LoadedPlugin {
     pub manifest: Manifest,
     pub directory: PathBuf,
+    /// For CLI sources.
     pub fetcher: Option<Arc<CliSourceFetcher>>,
+    /// For protocol plugins (sources and interactive login).
+    pub protocol: Option<Arc<ProtocolPlugin>>,
 }
 
 /// A plugin folder that could not be loaded, shown to the user instead of silently ignored.
@@ -72,7 +76,11 @@ impl PluginRegistry {
         self.plugins
             .iter()
             .filter_map(|p| {
-                let fetcher: Arc<dyn SourceFetcher> = p.fetcher.clone()?;
+                let fetcher: Arc<dyn SourceFetcher> = match (&p.fetcher, &p.protocol) {
+                    (Some(cli), _) => cli.clone(),
+                    (None, Some(protocol)) => protocol.clone(),
+                    (None, None) => return None,
+                };
                 Some((p.manifest.id.clone(), fetcher))
             })
             .collect::<HashMap<_, _>>()
@@ -108,37 +116,56 @@ fn load_plugin(folder: &Path, secrets: &Arc<dyn SecretStore>) -> Result<LoadedPl
             manifest.id
         ));
     }
-    let fetcher = match (
+    let mut fetcher = None;
+    let mut protocol = None;
+    match (
         &manifest.source,
         manifest.capabilities.contains(&Capability::Source),
     ) {
-        (Some(source), true) => {
-            let mapping: Mapping = read_json(&folder.join("mapping.json"))?;
-            mapping
-                .validate()
-                .map_err(|e| format!("mapping.json: {e}"))?;
-            let routes = compile_routes(&source.cli)
-                .map_err(|e| format!("plugin.json: invalid command match: {e}"))?;
-            if source.cli.commands.iter().any(|c| c.args.is_empty()) {
-                return Err("plugin.json: a command has no arguments".into());
+        (Some(source), true) => match (&source.cli, &source.protocol) {
+            (Some(cli), None) => {
+                let mapping: Mapping = read_json(&folder.join("mapping.json"))?;
+                mapping
+                    .validate()
+                    .map_err(|e| format!("mapping.json: {e}"))?;
+                let routes = compile_routes(cli)
+                    .map_err(|e| format!("plugin.json: invalid command match: {e}"))?;
+                if cli.commands.iter().any(|c| c.args.is_empty()) {
+                    return Err("plugin.json: a command has no arguments".into());
+                }
+                fetcher = Some(Arc::new(CliSourceFetcher::new(
+                    &manifest,
+                    cli.clone(),
+                    routes,
+                    mapping,
+                    secrets.clone(),
+                )));
             }
-            Some(Arc::new(CliSourceFetcher::new(
-                &manifest,
-                source.cli.clone(),
-                routes,
-                mapping,
-                secrets.clone(),
-            )))
-        }
+            (None, Some(spec)) => {
+                protocol = Some(Arc::new(ProtocolPlugin::new(
+                    &manifest,
+                    folder,
+                    &spec.executable,
+                    spec.timeout_seconds,
+                    secrets.clone(),
+                )));
+            }
+            _ => {
+                return Err(
+                    "plugin.json: `source` needs exactly one of `cli` and `protocol`".into(),
+                );
+            }
+        },
         (None, true) => {
             return Err("plugin.json: `source` capability without a `source` section".into());
         }
-        _ => None,
-    };
+        _ => {}
+    }
     Ok(LoadedPlugin {
         manifest,
         directory: folder.to_owned(),
         fetcher,
+        protocol,
     })
 }
 

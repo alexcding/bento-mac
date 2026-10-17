@@ -55,8 +55,18 @@ fn every_bundled_plugin_loads() {
         .map(|p| p.manifest.id.as_str())
         .collect();
     ids.sort_unstable();
-    assert_eq!(ids, ["reddit", "x", "xiaohongshu", "youtube"]);
-    assert_eq!(registry.fetchers().len(), 4);
+    assert_eq!(
+        ids,
+        [
+            "bilibili",
+            "reddit",
+            "telegram",
+            "x",
+            "xiaohongshu",
+            "youtube"
+        ]
+    );
+    assert_eq!(registry.fetchers().len(), 6);
 }
 
 #[test]
@@ -478,4 +488,85 @@ fn broken_plugins_are_reported_not_loaded() {
 
     assert!(registry.plugins.is_empty());
     assert!(registry.errors[0].message.contains("protocol 9"));
+}
+
+/// Writes a protocol plugin whose executable is a shell script answering every request with
+/// `response` (after checking the request contains `expect`).
+fn protocol_plugin(expect: &str, response: &str) -> (tempfile::TempDir, PluginRegistry) {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let plugin = dir.path().join("proto");
+    std::fs::create_dir_all(plugin.join("bin")).unwrap();
+    let script = plugin.join("bin/proto-plugin");
+    std::fs::write(
+        &script,
+        format!("#!/bin/sh\nrequest=$(cat)\ncase \"$request\" in *'{expect}'*) echo '{response}' ;; *) echo '{{\"error\":{{\"code\":-32600,\"message\":\"unexpected\"}}}}' ;; esac\n"),
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let manifest = serde_json::json!({
+        "id": "proto", "name": "Proto", "version": "1", "protocol": 1, "capabilities": ["source", "auth"],
+        "auth": {"kind": "interactive", "secrets": ["session"]},
+        "source": {"default_interval_minutes": 5, "protocol": {"executable": "proto-plugin", "timeout_seconds": 10}}
+    });
+    std::fs::write(plugin.join("plugin.json"), manifest.to_string()).unwrap();
+    let secrets: Arc<dyn SecretStore> = Arc::new(Secrets(vec![("proto", "session", "abc")]));
+    let registry = PluginRegistry::load(&[dir.path().to_owned()], &secrets);
+    assert!(registry.errors.is_empty(), "{:?}", registry.errors);
+    (dir, registry)
+}
+
+fn proto_source() -> SourceConfig {
+    serde_json::from_value(serde_json::json!({
+        "id": uuid::Uuid::from_u128(1), "plugin_id": "proto", "name": "p", "query": "q",
+        "interval_minutes": 5, "enabled": true
+    }))
+    .unwrap()
+}
+
+#[tokio::test]
+async fn protocol_fetch_passes_secrets_and_returns_items() {
+    let (_dir, registry) = protocol_plugin(
+        r#""secrets":{"session":"abc"}"#,
+        r#"{"jsonrpc":"2.0","id":1,"result":{"items":[{"external_id":"1","url":"https://e.com/1","text":"hi"}]}}"#,
+    );
+
+    let items = registry.fetchers()["proto"]
+        .fetch(&proto_source())
+        .await
+        .unwrap();
+
+    assert_eq!(items[0].text, "hi");
+}
+
+#[tokio::test]
+async fn protocol_auth_required_becomes_a_clear_error() {
+    let (_dir, registry) = protocol_plugin(
+        "source/fetch",
+        r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32001,"message":"log in"}}"#,
+    );
+
+    let error = registry.fetchers()["proto"]
+        .fetch(&proto_source())
+        .await
+        .unwrap_err();
+
+    assert!(error.to_string().contains("sign in"), "{error}");
+}
+
+#[tokio::test]
+async fn protocol_auth_steps_round_trip() {
+    let (_dir, registry) = protocol_plugin(
+        "auth/begin",
+        r#"{"jsonrpc":"2.0","id":1,"result":{"status":"pending","state":"s1","prompt":{"kind":"qr","message":"Scan","qr":"https://q"},"poll_after_ms":2000}}"#,
+    );
+    let plugin = registry.plugin("proto").unwrap().protocol.clone().unwrap();
+
+    let step = plugin.auth_begin().await.unwrap();
+
+    assert_eq!(
+        step.status,
+        bento_plugin_host::protocol::AuthStatus::Pending
+    );
+    assert_eq!(step.prompt.unwrap().qr.as_deref(), Some("https://q"));
 }

@@ -2,6 +2,7 @@
 //! cases. No business logic lives here.
 
 mod config_file;
+mod login;
 mod plugins;
 
 use std::io::Read;
@@ -97,6 +98,13 @@ enum PluginAction {
         /// File with the command's output.
         output: PathBuf,
     },
+    /// Sign in to a plugin with an interactive login (QR code, phone code).
+    Auth {
+        plugin: String,
+        /// One JSON line per step on stdout; input read from stdin (used by the app).
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[tokio::main]
@@ -142,6 +150,17 @@ async fn main() -> Result<()> {
         Command::EmitTestItem { title } => emit_test_item(&open_store(&data_dir)?, title),
         Command::Secrets { action } => {
             secrets_command(&keychain, &plugins::load(&directories, &secrets), action)
+        }
+        Command::Plugin {
+            action: PluginAction::Auth { plugin, json },
+        } => {
+            login::run(
+                &plugins::load(&directories, &secrets),
+                &keychain,
+                &plugin,
+                json,
+            )
+            .await
         }
         Command::Plugin { action } => plugin_command(&directories, &secrets, action),
     }
@@ -294,6 +313,9 @@ fn secrets_command(
                 bento_plugin_host::manifest::Auth::Secrets { fields } => {
                     fields.iter().map(|f| f.key.as_str()).collect()
                 }
+                bento_plugin_host::manifest::Auth::Interactive { secrets } => {
+                    secrets.iter().map(String::as_str).collect()
+                }
                 bento_plugin_host::manifest::Auth::None => Vec::new(),
             };
             let mut status = serde_json::Map::new();
@@ -326,6 +348,7 @@ fn plugin_command(
                 println!("error\t{}\t{}", error.directory.display(), error.message);
             }
         }
+        PluginAction::Auth { .. } => unreachable!("handled in main"),
         PluginAction::Test { folder, output } => {
             let folder = folder
                 .canonicalize()

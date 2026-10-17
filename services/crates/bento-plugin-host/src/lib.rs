@@ -7,6 +7,7 @@ mod fetcher;
 pub mod manifest;
 pub mod mapping;
 mod output;
+pub mod protocol;
 mod registry;
 pub mod requirements;
 

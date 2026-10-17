@@ -1,0 +1,30 @@
+{
+  "id": "bilibili",
+  "name": "Bilibili",
+  "version": "0.1.0",
+  "protocol": 1,
+  "capabilities": [
+    "source",
+    "auth"
+  ],
+  "description": "Your Bilibili following feed (动态). Sign in by scanning a QR code with the Bilibili app.",
+  "auth": {
+    "kind": "interactive",
+    "secrets": [
+      "sessdata",
+      "bili_jct",
+      "buvid3",
+      "buvid4",
+      "dedeuserid",
+      "refresh_token"
+    ]
+  },
+  "source": {
+    "default_interval_minutes": 30,
+    "query_hint": "Leave empty for your following feed",
+    "protocol": {
+      "executable": "bento-plugin-bilibili",
+      "timeout_seconds": 90
+    }
+  }
+}

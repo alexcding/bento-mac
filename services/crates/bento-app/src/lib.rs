@@ -3,6 +3,11 @@
 
 pub mod ingest;
 pub mod ports;
+pub mod schedule;
 
 pub use ingest::{IngestReport, Ingestor};
-pub use ports::{Clock, Outbox, OutboxEntry, PortError, SystemClock};
+pub use ports::{
+    Clock, Outbox, OutboxEntry, PortError, SourceFetcher, SourceState, SourceStateStore,
+    SystemClock,
+};
+pub use schedule::{FetcherRegistry, RunReport, Scheduler};

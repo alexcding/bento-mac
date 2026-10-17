@@ -1,10 +1,11 @@
 //! `collector.sqlite`: the Rust daemon's own database. Never synced.
 //!
-//! The Mac app reads the `outbox` table (see `schema.sql`) and saves its rows to the synced
-//! database. The column layout and the JSON payload are a contract with
-//! `Packages/BentoData/Sources/BentoData/Outbox.swift`.
+//! The Mac app reads the `outbox` and `source_state` tables (see `migrations/`). Their column
+//! layout and the JSON payload are a contract with `Packages/BentoData/Sources/BentoData/`
+//! (`Outbox.swift`, `CollectorStatus.swift`).
 
 mod outbox;
+mod source_state;
 
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
@@ -26,7 +27,10 @@ pub enum StoreError {
 }
 
 /// Ordered migrations. Index + 1 is the resulting `user_version`. Append only.
-const MIGRATIONS: &[&str] = &[include_str!("schema.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("migrations/001_outbox.sql"),
+    include_str!("migrations/002_scheduling.sql"),
+];
 
 pub struct SqliteStore {
     connection: Mutex<Connection>,
@@ -112,7 +116,7 @@ mod tests {
             .connection()
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 1);
+        assert_eq!(version, 2);
     }
 
     #[test]

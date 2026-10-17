@@ -13,23 +13,32 @@ pub struct OutboxRow {
 }
 
 impl SqliteStore {
-    fn append_outbox(&self, entries: &[OutboxEntry]) -> Result<(), StoreError> {
+    fn append_new_to_outbox(&self, entries: &[OutboxEntry]) -> Result<usize, StoreError> {
         let mut connection = self.connection();
         let transaction = connection.transaction()?;
+        let mut appended = 0;
         {
+            let mut mark_seen = transaction.prepare_cached(
+                "INSERT INTO seen_items (item_id) VALUES (?1) ON CONFLICT DO NOTHING",
+            )?;
             let mut insert = transaction.prepare_cached(
                 "INSERT INTO outbox (item_id, payload, detail) VALUES (?1, ?2, ?3)",
             )?;
             for entry in entries {
+                let id = entry.item.id.to_string();
+                if mark_seen.execute([&id])? == 0 {
+                    continue;
+                }
                 insert.execute(params![
-                    entry.item.id.to_string(),
+                    id,
                     serde_json::to_string(&entry.item)?,
-                    entry.detail,
+                    entry.detail
                 ])?;
+                appended += 1;
             }
         }
         transaction.commit()?;
-        Ok(())
+        Ok(appended)
     }
 
     /// Rows with `seq` greater than `after`, oldest first.
@@ -61,14 +70,8 @@ impl SqliteStore {
 }
 
 impl Outbox for SqliteStore {
-    fn append(&self, entries: &[OutboxEntry]) -> Result<(), PortError> {
-        self.append_outbox(entries).map_err(PortError::new)
-    }
-}
-
-impl Outbox for &SqliteStore {
-    fn append(&self, entries: &[OutboxEntry]) -> Result<(), PortError> {
-        (*self).append(entries)
+    fn append_new(&self, entries: &[OutboxEntry]) -> Result<usize, PortError> {
+        self.append_new_to_outbox(entries).map_err(PortError::new)
     }
 }
 
@@ -97,7 +100,7 @@ mod tests {
     fn appends_and_reads_back_in_order() {
         let store = SqliteStore::open_in_memory().unwrap();
         store
-            .append(&[entry("a", Some(vec![1, 2])), entry("b", None)])
+            .append_new(&[entry("a", Some(vec![1, 2])), entry("b", None)])
             .unwrap();
 
         let rows = store.outbox_after(0, 10).unwrap();
@@ -113,7 +116,7 @@ mod tests {
     fn reads_only_after_cursor() {
         let store = SqliteStore::open_in_memory().unwrap();
         store
-            .append(&[entry("a", None), entry("b", None), entry("c", None)])
+            .append_new(&[entry("a", None), entry("b", None), entry("c", None)])
             .unwrap();
         let first = store.outbox_after(0, 1).unwrap();
 
@@ -128,9 +131,28 @@ mod tests {
     }
 
     #[test]
+    fn skips_items_appended_before() {
+        let store = SqliteStore::open_in_memory().unwrap();
+        assert_eq!(store.append_new(&[entry("a", None)]).unwrap(), 1);
+
+        let appended = store
+            .append_new(&[entry("a", None), entry("b", None), entry("b", None)])
+            .unwrap();
+
+        assert_eq!(appended, 1);
+        let ids: Vec<_> = store
+            .outbox_after(0, 10)
+            .unwrap()
+            .into_iter()
+            .map(|r| r.item.external_id)
+            .collect();
+        assert_eq!(ids, ["a", "b"]);
+    }
+
+    #[test]
     fn payload_uses_milliseconds_and_snake_case() {
         let store = SqliteStore::open_in_memory().unwrap();
-        store.append(&[entry("a", None)]).unwrap();
+        store.append_new(&[entry("a", None)]).unwrap();
 
         let payload: String = store
             .connection()

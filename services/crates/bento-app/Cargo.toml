@@ -6,10 +6,15 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+async-trait.workspace = true
 bento-domain.workspace = true
 chrono.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
+
+[dev-dependencies]
+futures.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

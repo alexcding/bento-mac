@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/">
+  <channel>
+    <title>Example Blog</title>
+    <link>https://example.com/</link>
+    <description>Test feed</description>
+    <language>en</language>
+    <image>
+      <url>https://example.com/logo.png</url>
+      <title>Example Blog</title>
+      <link>https://example.com/</link>
+    </image>
+    <item>
+      <title>First &amp; best</title>
+      <link>https://example.com/posts/1</link>
+      <guid>https://example.com/posts/1</guid>
+      <pubDate>Fri, 16 Oct 2026 08:00:00 GMT</pubDate>
+      <description><![CDATA[<p>Hello <b>world</b>.</p><p>A second line.</p>]]></description>
+      <enclosure url="https://example.com/1.jpg" length="1234" type="image/jpeg"/>
+    </item>
+    <item>
+      <title>No date</title>
+      <link>https://example.com/posts/2</link>
+      <guid>https://example.com/posts/2</guid>
+      <description>Plain</description>
+    </item>
+  </channel>
+</rss>

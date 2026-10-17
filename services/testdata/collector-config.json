@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "max_item_age_hours": 48,
+  "sources": [
+    {
+      "id": "6f1c2a52-1d0e-4c7a-9a52-2f7e1b1c9d10",
+      "plugin_id": "rss",
+      "name": "Example Feed",
+      "query": "https://example.com/feed.xml",
+      "settings": {},
+      "interval_minutes": 30,
+      "enabled": true,
+      "translate": true,
+      "summarize": false,
+      "fetch_detail": true
+    },
+    {
+      "id": "0b8e4d1a-7a35-4d0b-8f2e-5c9d3e6a1b24",
+      "plugin_id": "rss",
+      "name": "Paused Feed",
+      "query": "https://example.org/atom.xml",
+      "settings": {},
+      "interval_minutes": 60,
+      "enabled": false,
+      "translate": false,
+      "summarize": false,
+      "fetch_detail": false
+    }
+  ]
+}

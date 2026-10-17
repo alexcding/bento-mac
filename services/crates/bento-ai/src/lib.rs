@@ -2,7 +2,7 @@
 //! Each returns the model's JSON answer for an `AiRequest`.
 
 use std::process::Stdio;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -228,23 +228,25 @@ async fn cli(
     let write = async move {
         let _ = stdin.write_all(prompt.as_bytes()).await;
     };
-    let group = child
-        .id()
-        .and_then(|pid| i32::try_from(pid).ok())
-        .map(Pid::from_raw);
+    // Kills the whole group if this future ends early: on timeout, or when the caller drops it
+    // (daemon shutdown).
+    let mut group = GroupGuard(
+        child
+            .id()
+            .and_then(|pid| i32::try_from(pid).ok())
+            .map(Pid::from_raw),
+    );
     let Ok(output) = tokio::time::timeout(Duration::from_secs(profile.timeout_seconds), async {
         tokio::join!(write, child.wait_with_output()).1
     })
     .await
     else {
-        if let Some(group) = group {
-            let _ = killpg(group, Signal::SIGKILL);
-        }
         return Err(AiError::Failed(format!(
             "{} timed out after {} s",
             profile.name, profile.timeout_seconds
         )));
     };
+    group.disarm();
     let output = output.map_err(failed)?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -288,6 +290,28 @@ async fn cli(
     }
 }
 
+/// SIGKILLs a CLI's process group when dropped, unless the command finished normally.
+struct GroupGuard(Option<Pid>);
+
+impl GroupGuard {
+    fn disarm(&mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for GroupGuard {
+    fn drop(&mut self) {
+        if let Some(group) = self.0 {
+            let _ = killpg(group, Signal::SIGKILL);
+        }
+    }
+}
+
+/// Status codes next to "HTTP", "status" or "error".
+static AUTH_STATUS: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b(?:http|status(?: code)?|error)[ :]*40[13]\b").expect("valid regex")
+});
+
 /// Treats login, key and permission problems as authentication failures. Status codes count only
 /// next to words like "HTTP" or "status", so a request ID or token count containing `401` does not.
 fn classify(message: String) -> AiError {
@@ -308,8 +332,7 @@ fn classify(message: String) -> AiError {
         "permission denied",
         "forbidden",
     ];
-    let status = Regex::new(r"\b(?:http|status(?: code)?|error)[ :]*40[13]\b").expect("valid");
-    if phrases.iter().any(|p| lower.contains(p)) || status.is_match(&lower) {
+    if phrases.iter().any(|p| lower.contains(p)) || AUTH_STATUS.is_match(&lower) {
         AiError::Auth(message)
     } else {
         AiError::Failed(message)
@@ -594,6 +617,41 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(200)).await;
         let alive = nix::sys::signal::kill(Pid::from_raw(child), None).is_ok();
         assert!(!alive, "the grandchild was killed with the group");
+    }
+
+    /// Dropping the call (as the daemon does on shutdown) stops everything the CLI started.
+    #[tokio::test]
+    async fn dropping_the_call_kills_the_process_group() {
+        let dir = tempfile::tempdir().unwrap();
+        let pid_file = dir.path().join("child.pid");
+        let script = format!(
+            "cat >/dev/null; sleep 30 & echo $! > '{}'; wait",
+            pid_file.display()
+        );
+        let mut profile = cli_profile(&["/bin/sh", "-c", &script]);
+        profile.timeout_seconds = 60;
+        let providers = AiProviders::new(Arc::new(Keys(None))).unwrap();
+        let request = request();
+
+        tokio::select! {
+            _ = providers.complete(&profile, &request) => panic!("should not finish"),
+            () = async {
+                while !pid_file.exists() {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+            } => {}
+        }
+
+        let child: i32 = std::fs::read_to_string(&pid_file)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(
+            nix::sys::signal::kill(Pid::from_raw(child), None).is_err(),
+            "grandchild killed on drop"
+        );
     }
 
     #[tokio::test]

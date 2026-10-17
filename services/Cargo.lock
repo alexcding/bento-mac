@@ -251,6 +251,7 @@ dependencies = [
  "async-trait",
  "bento-app",
  "dom_smoothie",
+ "encoding_rs",
  "htmd",
  "reqwest",
  "thiserror",

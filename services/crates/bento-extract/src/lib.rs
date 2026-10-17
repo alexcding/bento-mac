@@ -42,11 +42,13 @@ impl ArticleExtractor {
         if !response.status().is_success() {
             return Err(ExtractError::Status(response.status().as_u16()));
         }
-        let is_html = response
+        let content_type = response
             .headers()
             .get(reqwest::header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
-            .is_none_or(|v| v.contains("html"));
+            .map(str::to_ascii_lowercase);
+        let is_html = content_type.as_deref().is_none_or(|v| v.contains("html"));
+        let charset = content_type.as_deref().and_then(charset_param);
         if !is_html
             || response
                 .content_length()
@@ -62,7 +64,7 @@ impl ArticleExtractor {
                 return Ok(None);
             }
         }
-        Ok(markdown_from_html(&String::from_utf8_lossy(&bytes), url))
+        Ok(markdown_from_html(&decode(&bytes, charset.as_deref()), url))
     }
 }
 
@@ -71,6 +73,36 @@ impl DetailExtractor for ArticleExtractor {
     async fn extract(&self, url: &str) -> Result<Option<String>, PortError> {
         self.fetch(url).await.map_err(PortError::new)
     }
+}
+
+/// The `charset=` parameter of a Content-Type value.
+fn charset_param(content_type: &str) -> Option<String> {
+    let start = content_type.find("charset=")? + "charset=".len();
+    let value = content_type[start..]
+        .split(';')
+        .next()?
+        .trim()
+        .trim_matches(['"', '\'']);
+    (!value.is_empty()).then(|| value.to_owned())
+}
+
+/// Decodes a page with its declared charset: the Content-Type header, else a `<meta>` charset in the
+/// first 2 KB, else UTF-8.
+fn decode(bytes: &[u8], header_charset: Option<&str>) -> String {
+    let declared = header_charset.map(str::to_owned).or_else(|| {
+        let head = String::from_utf8_lossy(&bytes[..bytes.len().min(2048)]).to_ascii_lowercase();
+        let start = head.find("charset=")? + "charset=".len();
+        let value: String = head[start..]
+            .trim_start_matches(['"', '\''])
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+            .collect();
+        (!value.is_empty()).then_some(value)
+    });
+    let encoding = declared
+        .and_then(|label| encoding_rs::Encoding::for_label(label.as_bytes()))
+        .unwrap_or(encoding_rs::UTF_8);
+    encoding.decode(bytes).0.into_owned()
 }
 
 /// The page's main content as Markdown, or `None` when nothing article-like is found.
@@ -106,6 +138,27 @@ mod tests {
         assert!(markdown.contains("**borrow checker**"));
         assert!(!markdown.contains("Subscribe to our newsletter"));
         assert!(!markdown.contains("Cookie settings"));
+    }
+
+    #[test]
+    fn decodes_declared_charsets() {
+        let (gbk, _, _) = encoding_rs::GBK.encode("<p>成都美食推荐</p>");
+        assert_eq!(decode(&gbk, Some("gbk")), "<p>成都美食推荐</p>");
+        let with_meta = [
+            b"<html><head><meta charset=\"gb2312\"></head><body>".as_slice(),
+            &gbk,
+        ]
+        .concat();
+        assert!(decode(&with_meta, None).contains("成都美食推荐"));
+        assert_eq!(
+            decode("héllo".as_bytes(), None),
+            "héllo",
+            "UTF-8 by default"
+        );
+        assert_eq!(
+            charset_param("text/html; charset=\"Shift_JIS\"").as_deref(),
+            Some("Shift_JIS")
+        );
     }
 
     #[test]

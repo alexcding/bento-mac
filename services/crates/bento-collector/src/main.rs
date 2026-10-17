@@ -229,9 +229,17 @@ async fn run(
             catalog_due = tokio::time::Instant::now() + CATALOG_INTERVAL;
         }
         reload(&mut config_file, &mut config);
-        match scheduler.run_due(&config).await {
-            Ok(reports) => log_reports(&reports),
-            Err(error) => tracing::error!(%error, "scheduler failed"),
+        // A run in progress is dropped on shutdown, which stops its child processes; anything not
+        // yet stored is fetched again next time.
+        tokio::select! {
+            result = scheduler.run_due(&config) => match result {
+                Ok(reports) => log_reports(&reports),
+                Err(error) => tracing::error!(%error, "scheduler failed"),
+            },
+            result = &mut shutdown => {
+                result?;
+                break;
+            }
         }
         tokio::select! {
             result = &mut shutdown => {

@@ -9,6 +9,7 @@ license.workspace = true
 async-trait.workspace = true
 bento-app.workspace = true
 dom_smoothie.workspace = true
+encoding_rs.workspace = true
 htmd.workspace = true
 reqwest.workspace = true
 thiserror.workspace = true

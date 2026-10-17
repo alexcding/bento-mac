@@ -93,7 +93,7 @@ final class FakeCollector: CollectorControlling {
     calls.append("set(\(pluginID).\(key))")
     status[key] = true
   }
-  func refreshPlugins() async { calls.append("refreshPlugins") }
+  func refreshPlugins() async throws { calls.append("refreshPlugins") }
   func deleteSecret(pluginID: String, key: String) async throws { calls.append("delete(\(pluginID).\(key))") }
   func startLogin(pluginID: String) -> any LoginSession { FakeLoginSession(events: events, collector: self) }
   func becomeCollector() async throws {

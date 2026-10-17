@@ -22,6 +22,8 @@ public final class AddSourceViewModel: Identifiable {
   struct Setup: Equatable {
     var missingPrograms: [PluginInfo.Requirement]
     var needsSignIn: Bool
+    /// Its sign-in status has not been read yet.
+    var isChecking = false
     var isComplete: Bool { missingPrograms.isEmpty && !needsSignIn }
   }
 
@@ -66,9 +68,11 @@ public final class AddSourceViewModel: Identifiable {
 
   func setup(for plugin: PluginInfo) -> Setup {
     guard checksSetup else { return Setup(missingPrograms: [], needsSignIn: false) }
+    let needsAuth = Self.needsAuth(plugin)
     return Setup(
       missingPrograms: plugin.requirements.filter { !$0.installed },
-      needsSignIn: Self.needsAuth(plugin) && !plugin.isSignedIn(secretStatus[plugin.id])
+      needsSignIn: needsAuth && !plugin.isSignedIn(secretStatus[plugin.id]),
+      isChecking: needsAuth && secretStatus[plugin.id] == nil
     )
   }
 
@@ -76,8 +80,17 @@ public final class AddSourceViewModel: Identifiable {
     plugin.authRequired && (plugin.hasInteractiveLogin || !plugin.secretFields.isEmpty)
   }
 
+  /// Reads sign-ins, and moves a setup step opened before they arrived on when nothing is
+  /// missing. Runs again when the plugins or this Mac's role change (`refreshKey`).
   func load() async {
     await refreshSignIns()
+    advanceIfReady()
+  }
+
+  /// Changes when the sign-ins should be read again: the collector's catalog arrived, or this Mac
+  /// became (or stopped being) the collector.
+  var refreshKey: String {
+    "\(checksSetup)|" + plugins.map(\.id).joined(separator: ",")
   }
 
   func refreshSignIns() async {
@@ -122,8 +135,14 @@ public final class AddSourceViewModel: Identifiable {
       message = nil
     } catch {
       message = error.localizedDescription
+      return
     }
     await continueIfReady()
+    let status = secretStatus[plugin.id] ?? [:]
+    let missing = plugin.secretFields.filter { status[$0.key] != true }.map(\.label)
+    if case .setup = step, !missing.isEmpty {
+      message = "Still missing: \(missing.formatted())."
+    }
   }
 
   /// Starts the plugin's interactive login (QR code, phone code).
@@ -142,13 +161,22 @@ public final class AddSourceViewModel: Identifiable {
     guard let collector else { return }
     isWorking = true
     defer { isWorking = false }
-    await collector.refreshPlugins()
+    do {
+      try await collector.refreshPlugins()
+      message = nil
+    } catch {
+      message = error.localizedDescription
+    }
     await continueIfReady()
   }
 
   /// Re-reads the plugin's sign-in and goes on to the details once nothing is missing.
   func continueIfReady() async {
     await refreshSignIns()
+    advanceIfReady()
+  }
+
+  private func advanceIfReady() {
     guard case .setup = step, let plugin, setup(for: plugin).isComplete else { return }
     step = .details(pluginID: plugin.id)
   }

@@ -19,12 +19,8 @@ extension CollectorService: CollectorControlling {
     _ = try await CollectorCommand.run(["secrets", "delete", pluginID, key])
   }
 
-  func refreshPlugins() async {
-    do {
-      _ = try await CollectorCommand.run(["plugin", "catalog"])
-    } catch {
-      lastError = error.localizedDescription
-    }
+  func refreshPlugins() async throws {
+    _ = try await CollectorCommand.run(["plugin", "catalog"])
     await sync()
   }
 

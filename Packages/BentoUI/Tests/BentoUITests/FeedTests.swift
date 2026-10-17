@@ -140,29 +140,6 @@ struct FeedViewModelTests {
 }
 
 @Suite struct PluginInfoTests {
-  @Test func readyOnlyWithProgramsAndNeededSignIn() {
-    let x = plugin(
-      "x",
-      manifest: #"{"id":"x","capabilities":["source"],"source":{},"auth":{"kind":"secrets","fields":[{"key":"auth_token","label":"a"},{"key":"ct0","label":"c"}]}}"#,
-      requirements: #"[{"name":"twitter-cli","installed":true}]"#
-    )
-    #expect(!x.isReady(secretStatus: nil))
-    #expect(!x.isReady(secretStatus: ["auth_token": true, "ct0": false]))
-    #expect(x.isReady(secretStatus: ["auth_token": true, "ct0": true]))
-
-    let youtube = plugin(
-      "youtube", manifest: #"{"id":"youtube","capabilities":["source"],"source":{}}"#,
-      requirements: #"[{"name":"yt-dlp","installed":false}]"#
-    )
-    #expect(!youtube.isReady(secretStatus: nil), "its program is missing")
-
-    let telegram = plugin(
-      "telegram",
-      manifest: #"{"id":"telegram","capabilities":["source"],"source":{},"auth":{"kind":"interactive","secrets":["session"],"required":false}}"#
-    )
-    #expect(telegram.isReady(secretStatus: nil), "public channels need no sign-in")
-  }
-
   @Test func rssNeedsAWebURLOtherPluginsAcceptAnyQuery() {
     #expect(PluginInfo.rss.accepts(query: " https://example.com/feed.xml "))
     #expect(!PluginInfo.rss.accepts(query: "ftp://example.com"))
@@ -364,7 +341,13 @@ struct AddSourceTests {
 
     model.choose(x)
     #expect(model.step == .setup(pluginID: "x"))
-    model.secretValues["ct0"] = " c0ffee "
+    model.secretValues["auth_token"] = "t0ken"
+    await model.saveSecrets()
+    #expect(model.message == "Still missing: c.", "auth_token alone is not enough")
+    #expect(model.step == .setup(pluginID: "x"))
+
+    collector.calls.removeAll()
+    model.secretValues = ["ct0": " c0ffee "]
     await model.saveSecrets()
 
     #expect(collector.calls == ["set(x.ct0)"])
@@ -383,6 +366,19 @@ struct AddSourceTests {
     model.add()
 
     #expect(store.calls == ["addSource(x,@bento,false)"])
+  }
+
+  @Test func aSetupOpenedBeforeTheStatusArrivedMovesOn() async {
+    let collector = FakeCollector(plugins: [x])
+    collector.status = ["auth_token": true, "ct0": true]
+    let model = model(collector)
+    #expect(model.setup(for: x).isChecking)
+
+    model.choose(x)
+    #expect(model.step == .setup(pluginID: "x"), "status not read yet")
+    await model.load()
+
+    #expect(model.step == .details(pluginID: "x"))
   }
 
   @Test func anotherMacSkipsTheSetup() async {

@@ -34,7 +34,7 @@ struct AddSourceView: View {
       }
     }
     .frame(minWidth: 480, minHeight: 420)
-    .task { await model.load() }
+    .task(id: model.refreshKey) { await model.load() }
     .sheet(item: $model.login) { LoginView(model: $0) }
   }
 
@@ -70,7 +70,9 @@ struct AddSourceView: View {
 
   @ViewBuilder
   private func badge(_ setup: AddSourceViewModel.Setup) -> some View {
-    if !setup.missingPrograms.isEmpty {
+    if setup.isChecking, setup.missingPrograms.isEmpty {
+      ProgressView().controlSize(.small)
+    } else if !setup.missingPrograms.isEmpty {
       Text("Needs \(setup.missingPrograms.map(\.name).formatted())").font(.caption).foregroundStyle(.orange)
     } else if setup.needsSignIn {
       Text("Needs sign-in").font(.caption).foregroundStyle(.orange)

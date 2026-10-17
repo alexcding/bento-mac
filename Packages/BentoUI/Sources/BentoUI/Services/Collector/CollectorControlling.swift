@@ -22,7 +22,7 @@ public protocol CollectorControlling: AnyObject {
   func setSecret(pluginID: String, key: String, value: String) async throws
   func deleteSecret(pluginID: String, key: String) async throws
   /// Checks every plugin's programs again and reloads `plugins` (after the user installed one).
-  func refreshPlugins() async
+  func refreshPlugins() async throws
   /// Starts an interactive login (QR code, phone code).
   func startLogin(pluginID: String) -> any LoginSession
   /// Runs a source now, whatever its schedule. Only on the collector Mac.
@@ -153,14 +153,6 @@ public struct PluginInfo: Identifiable, Hashable, Sendable {
   public func isSignedIn(_ status: [String: Bool]?) -> Bool {
     guard let status else { return false }
     return hasInteractiveLogin ? status.values.contains(true) : !status.isEmpty && status.values.allSatisfy { $0 }
-  }
-
-  /// Whether it can be added as a source: it loaded, its programs are installed, and any sign-in
-  /// it needs is set.
-  public func isReady(secretStatus status: [String: Bool]?) -> Bool {
-    guard isSource, loadError == nil, requirements.allSatisfy(\.installed) else { return false }
-    let needsAuth = authRequired && (hasInteractiveLogin || !secretFields.isEmpty)
-    return !needsAuth || isSignedIn(status)
   }
 
   /// Whether a query is acceptable for this plugin. RSS needs a web URL; other plugins accept an

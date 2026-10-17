@@ -4,6 +4,8 @@ import SwiftUI
 /// One feed item as a card: author and time, title, summary or text, first image.
 struct FeedCard: View {
   let item: FeedItem
+  var isRead = false
+  var isBookmarked = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
@@ -40,7 +42,13 @@ struct FeedCard: View {
 
       Text(item.authorName ?? item.authorHandle ?? "Unknown")
         .font(.subheadline.weight(.semibold))
+      if !isRead {
+        Circle().fill(.tint).frame(width: 7, height: 7).accessibilityLabel("Unread")
+      }
       Spacer()
+      if isBookmarked {
+        Image(systemName: "bookmark.fill").font(.caption).foregroundStyle(.secondary)
+      }
       Text((item.isPublishedAtEstimated ? "~" : "") + item.publishedAt.formatted(.relative(presentation: .named)))
         .font(.caption)
         .foregroundStyle(.tertiary)
@@ -48,7 +56,7 @@ struct FeedCard: View {
   }
 }
 
-private struct MediaThumbnail: View {
+struct MediaThumbnail: View {
   let media: Media
 
   var body: some View {

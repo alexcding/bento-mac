@@ -4,8 +4,8 @@ import SQLiteData
 /// Moves processed items from `collector.sqlite` (written by `bento-collector`) into the synced
 /// database. Only the app writes the synced database, so sync triggers see every change.
 ///
-/// Contract with `services/crates/bento-store-sqlite/src/schema.sql`: table `outbox(seq,
-/// payload, detail)` and `meta('instance_id')`. Payload JSON is `bento_domain::FeedItem`.
+/// Contract with `services/crates/bento-store-sqlite/src/migrations/001_outbox.sql`: table
+/// `outbox(seq, payload, detail)` and `meta('instance_id')`. Payload JSON is `bento_domain::FeedItem`.
 public struct OutboxIngestor: Sendable {
   let collectorURL: URL
   let database: any DatabaseWriter

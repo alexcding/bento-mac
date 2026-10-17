@@ -16,15 +16,13 @@ import Testing
     database = try BentoDatabase.open(at: directory.appending(path: "bento.sqlite"), iCloudContainer: nil)
   }
 
-  /// Creates `collector.sqlite` from the Rust schema, so the contract cannot drift silently.
+  /// Creates `collector.sqlite` from the Rust migrations, so the contract cannot drift silently.
   func makeCollector() throws -> DatabaseQueue {
     try? FileManager.default.removeItem(at: collectorURL)
-    let schema = try String(
-      contentsOf: testdata.appending(path: "../crates/bento-store-sqlite/src/schema.sql").standardized,
-      encoding: .utf8
-    )
     let collector = try DatabaseQueue(path: collectorURL.path)
-    try collector.write { try $0.execute(sql: schema) }
+    try collector.write { db in
+      for migration in try collectorMigrations() { try db.execute(sql: migration) }
+    }
     return collector
   }
 

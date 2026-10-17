@@ -9,6 +9,15 @@ let testdata = URL(filePath: #filePath)
   .appending(path: "../../../../services/testdata")
   .standardized
 
+/// The Rust collector's SQL migrations, in order.
+func collectorMigrations() throws -> [String] {
+  let directory = testdata.appending(path: "../crates/bento-store-sqlite/src/migrations").standardized
+  return try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+    .filter { $0.pathExtension == "sql" }
+    .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    .map { try String(contentsOf: $0, encoding: .utf8) }
+}
+
 struct Vectors: Decodable {
   struct StableIDCase: Decodable {
     let source_id: UUID

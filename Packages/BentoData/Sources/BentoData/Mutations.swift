@@ -71,6 +71,30 @@ public enum Mutations {
     try Source.find(id).delete().execute(db)
   }
 
+  @discardableResult
+  public static func addDestination(
+    _ db: Database,
+    id: Destination.ID = UUID(),
+    channelID: Channel.ID,
+    kind: Destination.Kind,
+    name: String,
+    chatID: String? = nil
+  ) throws -> Destination.ID {
+    try Destination.insert {
+      Destination(id: id, channelID: channelID, kind: kind, name: name, chatID: chatID)
+    }
+    .execute(db)
+    return id
+  }
+
+  public static func updateDestination(_ db: Database, _ destination: Destination) throws {
+    try Destination.update(destination).execute(db)
+  }
+
+  public static func deleteDestination(_ db: Database, id: Destination.ID) throws {
+    try Destination.find(id).delete().execute(db)
+  }
+
   /// Bookmarking copies the item and its detail; removing deletes the copy.
   public static func setBookmarked(_ db: Database, itemID: FeedItem.ID, _ bookmarked: Bool, now: Date = .now) throws {
     guard bookmarked else {

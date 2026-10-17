@@ -76,6 +76,18 @@ import Testing
       var source = try #require(try Source.find(UUID(uuidString: "6f1c2a52-1d0e-4c7a-9a52-2f7e1b1c9d10")!).fetchOne(db))
       source.aiTaskKeys = ["keywords"]
       try Mutations.updateSource(db, source)
+      let channel = try #require(try Channel.all.fetchOne(db)).id
+      try Destination.insert {
+        Destination(
+          id: UUID(uuidString: "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f")!, channelID: channel, kind: .telegramBot,
+          name: "Team chat", chatID: "@team"
+        )
+        Destination(
+          id: UUID(uuidString: "7d8e9f0a-1b2c-4d3e-9f4a-5b6c7d8e9f0a")!, channelID: channel, kind: .discord,
+          name: "Server", isEnabled: false
+        )
+      }
+      .execute(db)
     }
 
     let config = try exported()
@@ -114,10 +126,18 @@ import Testing
       try Mutations.addSource(db, channelID: channel, pluginID: "rss", name: "A", query: "https://a")
     }
 
-    let sources = try #require(try exported(collecting: false)["sources"] as? [[String: Any]])
+    try database.write { db in
+      let channel = try #require(try Channel.all.fetchOne(db)).id
+      try Mutations.addDestination(db, channelID: channel, kind: .discord, name: "Server")
+    }
 
-    #expect(sources.count == 1)
+    let config = try exported(collecting: false)
+    let sources = try #require(config["sources"] as? [[String: Any]])
+    let destinations = try #require(config["destinations"] as? [[String: Any]])
+
+    #expect(sources.count == 1 && destinations.count == 1)
     #expect(sources[0]["enabled"] as? Bool == false)
+    #expect(destinations[0]["enabled"] as? Bool == false)
   }
 
   @Test func writesOnlyWhenChanged() throws {

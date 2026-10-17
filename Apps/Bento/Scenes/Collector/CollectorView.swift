@@ -14,6 +14,7 @@ struct CollectorView: View {
       switch model.tab {
       case .sources: sourcesTable
       case .runs: runsTable
+      case .posts: postsTable
       case .log: logView
       }
     }
@@ -108,6 +109,23 @@ struct CollectorView: View {
       TableColumn("New") { Text("\($0.newItems)").monospacedDigit() }.width(50)
       TableColumn("Error") { run in
         Text(run.error ?? "").foregroundStyle(.orange).lineLimit(1).help(run.error ?? "")
+      }
+    }
+  }
+
+  private var postsTable: some View {
+    Table(model.deliveries) {
+      TableColumn("Date") { Text($0.date.formatted(date: .abbreviated, time: .standard)) }
+      TableColumn("Destination") { Text(model.destinationName($0.destinationID)) }
+      TableColumn("Item") { Text($0.itemTitle).lineLimit(1).help($0.itemTitle) }
+      TableColumn("State") { delivery in
+        Text(delivery.state.rawValue.capitalized)
+          .foregroundStyle(delivery.state == .failed ? .red : delivery.state == .pending ? .secondary : .primary)
+      }
+      .width(70)
+      TableColumn("Tries") { Text("\($0.attempts)").monospacedDigit() }.width(40)
+      TableColumn("Error") { delivery in
+        Text(delivery.error ?? "").foregroundStyle(.orange).lineLimit(1).help(delivery.error ?? "")
       }
     }
   }

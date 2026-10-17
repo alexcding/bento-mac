@@ -164,10 +164,16 @@ public nonisolated struct Destination: Hashable, Identifiable, Sendable {
   public var channelID: Channel.ID
   public var kind: Kind
   public var name = ""
-  /// Telegram chat. Webhook URLs and tokens live in the Keychain, never here.
+  /// Telegram chat: a numeric ID or `@channel`. Webhook URLs and bot tokens live in the collector
+  /// Mac's Keychain, never here.
   public var chatID: String?
   public var postDelaySeconds = 20
   public var isEnabled = true
+
+  /// Where the webhook URL or bot token is kept: the collector's secret store under this
+  /// namespace, keyed by `secretKey`.
+  public static let secretNamespace = "destination"
+  public var secretKey: String { id.uuidString.lowercased() }
 
   public enum Kind: String, QueryBindable, Sendable {
     case discord

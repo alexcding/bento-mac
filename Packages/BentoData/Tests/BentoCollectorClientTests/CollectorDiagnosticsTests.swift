@@ -64,6 +64,27 @@ import Testing
     #expect(try CollectorDiagnostics.recentRuns(collectorURL: missing).isEmpty)
     #expect(try CollectorDiagnostics.logTail(url: missing).isEmpty)
   }
+
+  @Test func readsDeliveriesNewestFirstWithTheItemTitle() throws {
+    let url = try collector(runs: [])
+    try DatabaseQueue(path: url.path).write { db in
+      try db.execute(
+        sql: """
+          INSERT INTO outbox (item_id, payload) VALUES ('i1', '{"title":"Hello","text":"body"}');
+          INSERT INTO deliveries (destination_id, item_id, outbox_seq, state, next_attempt_at, sent_at)
+            VALUES ('3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f', 'i1', 1, 'sent', 0, 5000);
+          INSERT INTO deliveries (destination_id, item_id, outbox_seq, state, attempts, next_attempt_at, last_error)
+            VALUES ('3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f', 'i2', 1, 'failed', 5, 0, '502');
+          """
+      )
+    }
+
+    let deliveries = try CollectorDiagnostics.recentDeliveries(collectorURL: url)
+
+    #expect(deliveries.map(\.state) == [.failed, .sent])
+    #expect(deliveries[1].itemTitle == "Hello" && deliveries[1].date == Date(timeIntervalSince1970: 5))
+    #expect(deliveries[0].error == "502" && deliveries[0].attempts == 5)
+  }
 }
 
 @Suite struct PluginCatalogTests {

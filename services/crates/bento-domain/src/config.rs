@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::ai::{AiConfig, SUMMARIZE_TASK, TRANSLATE_TASK};
+use crate::publish::DestinationConfig;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CollectorConfig {
@@ -22,6 +23,9 @@ pub struct CollectorConfig {
     /// The app's UTC offset, for `skip_weekends`.
     #[serde(default)]
     pub utc_offset_minutes: i32,
+    /// Where new items are posted.
+    #[serde(default)]
+    pub destinations: Vec<DestinationConfig>,
 }
 
 impl Default for CollectorConfig {
@@ -33,6 +37,7 @@ impl Default for CollectorConfig {
             ai: AiConfig::default(),
             skip_weekends: false,
             utc_offset_minutes: 0,
+            destinations: Vec::new(),
         }
     }
 }
@@ -109,6 +114,11 @@ mod tests {
         assert_eq!(config.ai.profiles_for(&keywords).len(), 2);
         assert_eq!(config.sources[0].plugin_id, "rss");
         assert!(!config.sources[1].enabled);
+        let telegram = &config.destinations[0];
+        assert_eq!(telegram.kind, crate::DestinationKind::TelegramBot);
+        assert_eq!(telegram.chat_id.as_deref(), Some("@team"));
+        assert_eq!(telegram.source_ids.len(), 2);
+        assert!(!config.destinations[1].enabled);
     }
 
     #[test]

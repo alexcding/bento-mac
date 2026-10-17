@@ -11,17 +11,20 @@ final class CollectorViewModel {
   enum Tab: String, CaseIterable, Identifiable {
     case sources = "Sources"
     case runs = "Runs"
+    case posts = "Posts"
     case log = "Log"
     var id: Self { self }
   }
 
   var tab: Tab = .sources
   private(set) var runs: [CollectorRun] = []
+  private(set) var deliveries: [CollectorDelivery] = []
   private(set) var performance: [UUID: SourcePerformance] = [:]
   private(set) var logLines: [String] = []
   private(set) var loadError: String?
 
   @ObservationIgnored @FetchAll(Source.order(by: \.name)) var sources: [Source]
+  @ObservationIgnored @FetchAll var destinations: [Destination]
   let service: CollectorService
 
   /// How often an open diagnostics window refreshes.
@@ -35,16 +38,22 @@ final class CollectorViewModel {
     sources.first { $0.id == id }?.name ?? "Unknown source"
   }
 
+  func destinationName(_ id: UUID?) -> String {
+    destinations.first { $0.id == id }?.name ?? "Removed destination"
+  }
+
   func refresh() async {
     let (collectorURL, logURL) = (service.collectorURL, service.logURL)
     do {
-      let (runs, log) = try await Task.detached(priority: .utility) {
+      let (runs, deliveries, log) = try await Task.detached(priority: .utility) {
         (
           try CollectorDiagnostics.recentRuns(collectorURL: collectorURL),
+          try CollectorDiagnostics.recentDeliveries(collectorURL: collectorURL),
           try CollectorDiagnostics.logTail(url: logURL)
         )
       }.value
       self.runs = runs
+      self.deliveries = deliveries
       performance = CollectorDiagnostics.performance(runs)
       logLines = log
       loadError = nil

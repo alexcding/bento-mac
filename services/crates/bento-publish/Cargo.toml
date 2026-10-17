@@ -1,0 +1,21 @@
+[package]
+name = "bento-publish"
+description = "Posts Bento items to Discord webhooks and Telegram bots."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+bento-app.workspace = true
+bento-domain.workspace = true
+reqwest.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+uuid.workspace = true
+wiremock.workspace = true
+
+[lints]
+workspace = true

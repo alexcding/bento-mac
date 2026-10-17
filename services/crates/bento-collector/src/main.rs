@@ -2,6 +2,7 @@
 //! cases. No business logic lives here.
 
 mod config_file;
+mod deliver;
 mod login;
 mod plugins;
 
@@ -32,6 +33,9 @@ const TEST_SOURCE_ID: Uuid = Uuid::from_u128(0x0000_0000_0000_4000_8000_0000_000
 /// How often the daemon reloads its config and checks for due sources.
 const TICK: Duration = Duration::from_secs(15);
 
+/// How long shutdown waits for a post in flight (each send times out after 30 s; launchd allows
+/// 20 s before it kills the process, so this stays below).
+const DELIVERY_SHUTDOWN: Duration = Duration::from_secs(15);
 /// How often plugin requirements are re-checked and the catalog republished.
 const CATALOG_INTERVAL: Duration = Duration::from_mins(10);
 
@@ -256,6 +260,8 @@ async fn run(
     let mut catalog_due = tokio::time::Instant::now();
     let mut config_file = ConfigFile::new(data_dir.join("collector-config.json"));
     let mut config = CollectorConfig::default();
+    let (stop_delivery, delivery_stopped) = tokio::sync::watch::channel(false);
+    let delivery = deliver::spawn(data_dir, store.clone(), secrets.clone(), delivery_stopped);
     let shutdown = shutdown_signal();
     tokio::pin!(shutdown);
     loop {
@@ -285,6 +291,13 @@ async fn run(
             }
             () = tokio::time::sleep(TICK) => {}
         }
+    }
+    stop_delivery.send_replace(true);
+    if tokio::time::timeout(DELIVERY_SHUTDOWN, delivery)
+        .await
+        .is_err()
+    {
+        tracing::warn!("a post was still sending at shutdown");
     }
     tracing::info!("collector stopped");
     Ok(())
@@ -442,7 +455,7 @@ fn plugin_command(
     Ok(())
 }
 
-fn reload(file: &mut ConfigFile, config: &mut CollectorConfig) {
+pub(crate) fn reload(file: &mut ConfigFile, config: &mut CollectorConfig) {
     match file.reload_if_changed() {
         Ok(Some(new)) => {
             tracing::info!(sources = new.sources.len(), "config loaded");

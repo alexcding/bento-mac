@@ -27,6 +27,9 @@ struct ChannelSettingsView: View {
           }
           addSourceRow
         }
+        if model.collector != nil {
+          destinationsSection
+        }
       }
       .formStyle(.grouped)
       .navigationTitle(model.channel?.name ?? "Channel")
@@ -40,6 +43,55 @@ struct ChannelSettingsView: View {
     .task { await model.load() }
     .sheet(item: $model.sourceEditor) { editor in
       SourceEditorView(model: editor)
+    }
+  }
+
+  private var destinationsSection: some View {
+    Section {
+      ForEach(model.destinations) { destination in
+        DestinationRow(
+          destination: destination,
+          canManage: model.canManageDestinations,
+          update: { model.update($0) },
+          replaceSecret: { value in Task { await model.replaceSecret(of: destination, with: value) } },
+          delete: { Task { await model.delete(destination) } }
+        )
+      }
+      if model.canManageDestinations {
+        addDestinationRow
+      }
+      if let message = model.destinationMessage {
+        Text(message).font(.caption).foregroundStyle(.orange)
+      }
+    } header: {
+      Text("Post to")
+    } footer: {
+      Text(
+        model.canManageDestinations
+          ? "New items from this channel's sources are posted here. Webhook URLs and bot tokens stay in this Mac's Keychain."
+          : "Destinations are set up on the collector Mac, which keeps their webhook URLs and bot tokens in its Keychain."
+      )
+    }
+  }
+
+  private var addDestinationRow: some View {
+    VStack(alignment: .leading) {
+      HStack {
+        Picker("Kind", selection: $model.newDestinationKind) {
+          ForEach(Destination.Kind.addable, id: \.self) { Text($0.label).tag($0) }
+        }
+        .labelsHidden()
+        .fixedSize()
+        TextField("Name", text: $model.newDestinationName)
+      }
+      HStack {
+        SecureField(model.newDestinationKind.secretPrompt, text: $model.newDestinationSecret)
+        if model.newDestinationKind == .telegramBot {
+          TextField("Chat ID or @channel", text: $model.newDestinationChatID)
+        }
+        Button("Add") { Task { await model.addDestination() } }
+          .disabled(!model.canAddDestination)
+      }
     }
   }
 
@@ -99,5 +151,61 @@ private struct SourceRow: View {
         .labelStyle(.iconOnly)
         .buttonStyle(.borderless)
     }
+  }
+}
+
+private struct DestinationRow: View {
+  let destination: Destination
+  let canManage: Bool
+  let update: (Destination) -> Void
+  let replaceSecret: (String) -> Void
+  let delete: () -> Void
+  @State private var newSecret = ""
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      HStack {
+        Toggle("", isOn: binding(\.isEnabled)).labelsHidden()
+        VStack(alignment: .leading) {
+          Text(destination.name)
+          Text([destination.kind.label, destination.chatID].compactMap { $0 }.joined(separator: " · "))
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        Spacer()
+        Button("Delete", systemImage: "trash", role: .destructive, action: delete)
+          .labelStyle(.iconOnly)
+          .buttonStyle(.borderless)
+      }
+      Stepper(
+        "Wait \(destination.postDelaySeconds) s between posts",
+        value: binding(\.postDelaySeconds),
+        in: 0...600,
+        step: 5
+      )
+      .font(.caption)
+      if canManage {
+        HStack {
+          SecureField("New \(destination.kind.secretPrompt.lowercased())", text: $newSecret)
+          Button("Replace") {
+            replaceSecret(newSecret)
+            newSecret = ""
+          }
+          .disabled(newSecret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        .font(.caption)
+      }
+    }
+  }
+
+  private func binding<Value>(_ keyPath: WritableKeyPath<Destination, Value>) -> Binding<Value> {
+    Binding(
+      get: { destination[keyPath: keyPath] },
+      set: { value in
+        var copy = destination
+        copy[keyPath: keyPath] = value
+        update(copy)
+      }
+    )
   }
 }

@@ -29,6 +29,11 @@ final class FakeLibraryStore: LibraryStoring {
   }
   func updateSource(_ source: Source) throws { calls.append("updateSource") }
   func deleteSource(_ id: Source.ID) throws { calls.append("deleteSource") }
+  func addDestination(id: Destination.ID, channelID: Channel.ID, kind: Destination.Kind, name: String, chatID: String?) throws {
+    calls.append("addDestination(\(kind.rawValue),\(name),\(chatID ?? "-"))")
+  }
+  func updateDestination(_ destination: Destination) throws { calls.append("updateDestination") }
+  func deleteDestination(_ id: Destination.ID) throws { calls.append("deleteDestination") }
   func setBookmarked(_ itemID: FeedItem.ID, _ bookmarked: Bool) throws { calls.append("setBookmarked(\(bookmarked))") }
   func setRead(_ itemIDs: [FeedItem.ID], _ read: Bool) throws { calls.append("setRead(\(itemIDs.count),\(read))") }
   func markAllRead(channelID: Channel.ID?) throws { calls.append("markAllRead(\(channelID == nil ? "all" : "channel"))") }

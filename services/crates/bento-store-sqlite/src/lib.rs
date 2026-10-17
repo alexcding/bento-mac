@@ -5,6 +5,7 @@
 //! (`Outbox.swift`, `CollectorStatus.swift`).
 
 mod ai_calls;
+mod deliveries;
 mod outbox;
 mod plugins;
 mod source_state;
@@ -37,6 +38,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/004_plugins.sql"),
     include_str!("migrations/005_ai_calls.sql"),
     include_str!("migrations/006_last_success.sql"),
+    include_str!("migrations/007_deliveries.sql"),
 ];
 
 pub struct SqliteStore {
@@ -123,7 +125,7 @@ mod tests {
             .connection()
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
     }
 
     #[test]

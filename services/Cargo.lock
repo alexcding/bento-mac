@@ -216,6 +216,7 @@ dependencies = [
  "bento-domain",
  "bento-extract",
  "bento-plugin-host",
+ "bento-publish",
  "bento-secrets-keychain",
  "bento-source-rss",
  "bento-store-sqlite",
@@ -300,6 +301,20 @@ dependencies = [
  "scraper",
  "serde_json",
  "tokio",
+ "wiremock",
+]
+
+[[package]]
+name = "bento-publish"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bento-app",
+ "bento-domain",
+ "reqwest",
+ "serde_json",
+ "tokio",
+ "uuid",
  "wiremock",
 ]
 

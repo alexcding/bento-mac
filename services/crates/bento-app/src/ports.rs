@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use async_trait::async_trait;
-use bento_domain::{AiProfile, FeedItem, RawItem, SourceConfig};
+use bento_domain::{AiProfile, DestinationConfig, FeedItem, Message, RawItem, SourceConfig};
 use chrono::{DateTime, Utc};
 use thiserror::Error;
 use uuid::Uuid;
@@ -142,6 +142,81 @@ pub struct RunRecord {
     pub error: Option<String>,
 }
 
+/// One post waiting to be sent to a destination.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Delivery {
+    pub id: i64,
+    pub destination_id: Uuid,
+    pub item: FeedItem,
+    /// The item it quotes or reposts, posted inside it.
+    pub referenced: Option<FeedItem>,
+    /// Failed attempts so far.
+    pub attempts: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DeliveryOutcome {
+    Sent,
+    /// Try again at `at`. Rate limits do not count as a failed attempt.
+    Retry {
+        at: DateTime<Utc>,
+        error: String,
+        failed_attempt: bool,
+    },
+    /// Given up for good.
+    Failed(String),
+}
+
+/// The delivery queue, fed from the outbox through its own cursor.
+pub trait DeliveryStore: Send + Sync {
+    /// Outbox rows after the delivery cursor, oldest first, as `(seq, item)`.
+    fn undelivered_outbox(&self, limit: usize) -> Result<Vec<(i64, FeedItem)>, PortError>;
+    /// Queues `(destination, item, seq)` deliveries due now and moves the cursor to `through_seq`,
+    /// atomically. A destination is never queued the same item twice.
+    fn queue_deliveries(
+        &self,
+        through_seq: i64,
+        deliveries: &[(Uuid, Uuid, i64)],
+        now: DateTime<Utc>,
+    ) -> Result<(), PortError>;
+    /// Pending deliveries due at `now`, oldest first.
+    fn due_deliveries(&self, now: DateTime<Utc>, limit: usize) -> Result<Vec<Delivery>, PortError>;
+    /// When a post last went out to the destination.
+    fn last_sent_at(&self, destination_id: Uuid) -> Result<Option<DateTime<Utc>>, PortError>;
+    fn finish_delivery(
+        &self,
+        id: i64,
+        outcome: &DeliveryOutcome,
+        now: DateTime<Utc>,
+    ) -> Result<(), PortError>;
+}
+
+#[derive(Debug, Error)]
+pub enum PublishError {
+    /// 429 or a Telegram flood wait: wait this long.
+    #[error("rate limited for {}s", .0.as_secs())]
+    RateLimited(std::time::Duration),
+    /// The request may have arrived. Never retried, so nothing is posted twice.
+    #[error("timed out: {0}")]
+    TimedOut(String),
+    /// Refused for good: a bad token or webhook, an unknown chat, a malformed post.
+    #[error("{0}")]
+    Rejected(String),
+    /// Network or server error, retried with backoff.
+    #[error("{0}")]
+    Failed(String),
+}
+
+/// Posts a message to one destination. One implementation covers every supported kind.
+#[async_trait]
+pub trait Publisher: Send + Sync {
+    async fn publish(
+        &self,
+        destination: &DestinationConfig,
+        message: &Message,
+    ) -> Result<(), PublishError>;
+}
+
 pub trait SourceStateStore {
     fn source_state(&self, source_id: Uuid) -> Result<Option<SourceState>, PortError>;
     fn save_source_state(&self, state: &SourceState) -> Result<(), PortError>;
@@ -179,5 +254,43 @@ impl<T: SourceStateStore + ?Sized> SourceStateStore for &T {
 
     fn record_run(&self, run: &RunRecord) -> Result<(), PortError> {
         (**self).record_run(run)
+    }
+}
+
+impl<T: Clock + ?Sized> Clock for std::sync::Arc<T> {
+    fn now(&self) -> DateTime<Utc> {
+        (**self).now()
+    }
+}
+
+impl<T: DeliveryStore + ?Sized> DeliveryStore for std::sync::Arc<T> {
+    fn undelivered_outbox(&self, limit: usize) -> Result<Vec<(i64, FeedItem)>, PortError> {
+        (**self).undelivered_outbox(limit)
+    }
+
+    fn queue_deliveries(
+        &self,
+        through_seq: i64,
+        deliveries: &[(Uuid, Uuid, i64)],
+        now: DateTime<Utc>,
+    ) -> Result<(), PortError> {
+        (**self).queue_deliveries(through_seq, deliveries, now)
+    }
+
+    fn due_deliveries(&self, now: DateTime<Utc>, limit: usize) -> Result<Vec<Delivery>, PortError> {
+        (**self).due_deliveries(now, limit)
+    }
+
+    fn last_sent_at(&self, destination_id: Uuid) -> Result<Option<DateTime<Utc>>, PortError> {
+        (**self).last_sent_at(destination_id)
+    }
+
+    fn finish_delivery(
+        &self,
+        id: i64,
+        outcome: &DeliveryOutcome,
+        now: DateTime<Utc>,
+    ) -> Result<(), PortError> {
+        (**self).finish_delivery(id, outcome, now)
     }
 }

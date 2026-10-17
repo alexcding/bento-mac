@@ -40,9 +40,41 @@ public enum CollectorConfigExporter {
       "skip_weekends": settings.skipWeekends,
       "utc_offset_minutes": utcOffsetMinutes,
       "sources": sources,
+      "destinations": try destinations(db, links: links, enabledChannels: collecting ? enabledChannels : []),
       "ai": try ai(db),
     ]
     return try JSONSerialization.data(withJSONObject: config, options: [.sortedKeys, .prettyPrinted])
+  }
+
+  /// Destinations by ID, each with its channel's sources. Only those of enabled channels are
+  /// enabled; contract: `bento_domain::publish::DestinationConfig`.
+  private static func destinations(
+    _ db: Database,
+    links: [ChannelSource],
+    enabledChannels: Set<Channel.ID>
+  ) throws -> [[String: Any]] {
+    try Destination.order(by: \.id).fetchAll(db).map { destination in
+      var entry: [String: Any] = [
+        "id": destination.id.uuidString.lowercased(),
+        "kind": kind(destination.kind),
+        "name": destination.name,
+        "post_delay_seconds": max(destination.postDelaySeconds, 0),
+        "enabled": destination.isEnabled && enabledChannels.contains(destination.channelID),
+        "source_ids": links.filter { $0.channelID == destination.channelID }
+          .map { $0.sourceID.uuidString.lowercased() }
+          .sorted(),
+      ]
+      if let chatID = destination.chatID, !chatID.isEmpty { entry["chat_id"] = chatID }
+      return entry
+    }
+  }
+
+  private static func kind(_ kind: Destination.Kind) -> String {
+    switch kind {
+    case .discord: "discord"
+    case .telegramBot: "telegram_bot"
+    case .telegramAccount: "telegram_account"
+    }
   }
 
   /// Profiles by ID, tasks by key; contract: `bento_domain::ai::AiConfig`.

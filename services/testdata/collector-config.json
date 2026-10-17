@@ -33,6 +33,31 @@
       "skip_initial_backlog": false
     }
   ],
+  "destinations": [
+    {
+      "id": "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f",
+      "kind": "telegram_bot",
+      "name": "Team chat",
+      "chat_id": "@team",
+      "post_delay_seconds": 20,
+      "enabled": true,
+      "source_ids": [
+        "0b8e4d1a-7a35-4d0b-8f2e-5c9d3e6a1b24",
+        "6f1c2a52-1d0e-4c7a-9a52-2f7e1b1c9d10"
+      ]
+    },
+    {
+      "id": "7d8e9f0a-1b2c-4d3e-9f4a-5b6c7d8e9f0a",
+      "kind": "discord",
+      "name": "Server",
+      "post_delay_seconds": 20,
+      "enabled": false,
+      "source_ids": [
+        "0b8e4d1a-7a35-4d0b-8f2e-5c9d3e6a1b24",
+        "6f1c2a52-1d0e-4c7a-9a52-2f7e1b1c9d10"
+      ]
+    }
+  ],
   "ai": {
     "profiles": [
       {

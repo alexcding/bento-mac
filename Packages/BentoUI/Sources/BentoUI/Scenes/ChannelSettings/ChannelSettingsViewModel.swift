@@ -3,7 +3,8 @@ import Foundation
 import Observation
 import SQLiteData
 
-/// Channel name and pause switch, and its sources with collector status.
+/// Channel name and pause switch, its sources with collector status, and the destinations its
+/// new items are posted to.
 @MainActor
 @Observable
 public final class ChannelSettingsViewModel: Identifiable {
@@ -20,13 +21,20 @@ public final class ChannelSettingsViewModel: Identifiable {
   var newSourceSkipsBacklog = false
   /// The source being edited, shown as a sheet over the channel settings.
   var sourceEditor: SourceEditorViewModel?
+  var newDestinationKind: Destination.Kind = .discord
+  var newDestinationName = ""
+  /// The webhook URL or bot token, saved to the collector's Keychain.
+  var newDestinationSecret = ""
+  var newDestinationChatID = ""
+  private(set) var destinationMessage: String?
   @ObservationIgnored public var onAction: (Action) -> Void = { _ in }
 
   @ObservationIgnored @FetchOne var channel: Channel?
   @ObservationIgnored @FetchAll var sources: [Source]
+  @ObservationIgnored @FetchAll var destinations: [Destination]
   @ObservationIgnored private let store: any LibraryStoring
   @ObservationIgnored private let statuses: any SourceStatusProviding
-  @ObservationIgnored private let collector: (any CollectorControlling)?
+  @ObservationIgnored let collector: (any CollectorControlling)?
   @ObservationIgnored private let sourceEditors: any SourceEditorFeatureFactory
 
   init(
@@ -52,6 +60,7 @@ public final class ChannelSettingsViewModel: Identifiable {
           .order(by: \.name)
           .select { $0 }
       )
+      try await $destinations.load(Destination.where { $0.channelID.eq(channelID) }.order(by: \.name))
       name = channel?.name ?? ""
     }
   }
@@ -121,8 +130,89 @@ public final class ChannelSettingsViewModel: Identifiable {
     sourceEditor = editor
   }
 
+  // MARK: Destinations
+
+  /// Secrets live in the collector Mac's Keychain, so destinations are set up there.
+  var canManageDestinations: Bool { collector?.isThisMacCollector ?? false }
+
+  var canAddDestination: Bool {
+    let filled = { (text: String) in !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    return canManageDestinations && filled(newDestinationSecret)
+      && (newDestinationKind != .telegramBot || filled(newDestinationChatID))
+  }
+
+  /// Saves the secret first, so a destination never exists without one.
+  func addDestination() async {
+    guard let collector, canAddDestination else { return }
+    let id = UUID()
+    let name = newDestinationName.trimmingCharacters(in: .whitespacesAndNewlines)
+    let chatID = newDestinationChatID.trimmingCharacters(in: .whitespacesAndNewlines)
+    do {
+      try await collector.setSecret(
+        pluginID: Destination.secretNamespace,
+        key: id.uuidString.lowercased(),
+        value: newDestinationSecret.trimmingCharacters(in: .whitespacesAndNewlines)
+      )
+      try store.addDestination(
+        id: id,
+        channelID: channelID,
+        kind: newDestinationKind,
+        name: name.isEmpty ? newDestinationKind.label : name,
+        chatID: newDestinationKind == .telegramBot ? chatID : nil
+      )
+      newDestinationName = ""
+      newDestinationSecret = ""
+      newDestinationChatID = ""
+      destinationMessage = nil
+    } catch {
+      destinationMessage = error.localizedDescription
+    }
+  }
+
+  func update(_ destination: Destination) {
+    withErrorReporting { try store.updateDestination(destination) }
+  }
+
+  func replaceSecret(of destination: Destination, with value: String) async {
+    let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let collector, canManageDestinations, !value.isEmpty else { return }
+    do {
+      try await collector.setSecret(pluginID: Destination.secretNamespace, key: destination.secretKey, value: value)
+      destinationMessage = nil
+    } catch {
+      destinationMessage = error.localizedDescription
+    }
+  }
+
+  func delete(_ destination: Destination) async {
+    withErrorReporting { try store.deleteDestination(destination.id) }
+    try? await collector?.deleteSecret(pluginID: Destination.secretNamespace, key: destination.secretKey)
+  }
+
   func done() {
     saveName()
     onAction(.dismiss)
+  }
+}
+
+extension Destination.Kind {
+  /// Kinds that can be added. Telegram as your account comes with its sign-in.
+  static let addable: [Self] = [.discord, .telegramBot]
+
+  var label: String {
+    switch self {
+    case .discord: "Discord"
+    case .telegramBot: "Telegram bot"
+    case .telegramAccount: "Telegram account"
+    }
+  }
+
+  /// What the secret field asks for.
+  var secretPrompt: String {
+    switch self {
+    case .discord: "Webhook URL"
+    case .telegramBot: "Bot token"
+    case .telegramAccount: "Session"
+    }
   }
 }

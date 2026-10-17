@@ -8,6 +8,7 @@ pub mod config;
 pub mod detail;
 pub mod html;
 pub mod item;
+pub mod publish;
 pub mod stable_id;
 
 pub use ai::{AiConfig, AiOutput, AiProfile, AiProfileKind, AiTask, CliPreset, OutputTarget};
@@ -15,3 +16,4 @@ pub use config::{CollectorConfig, SourceConfig};
 pub use item::{
     Author, FeedItem, Media, MediaKind, NormalizedItem, RawItem, Reference, ReferenceKind,
 };
+pub use publish::{DESTINATION_SECRETS, DestinationConfig, DestinationKind, Message};

@@ -247,3 +247,40 @@ struct SourceEditorTests {
     #expect(SourceEditorViewModel.describe(RunSummary(error: "no plugin")) == "no plugin")
   }
 }
+
+@MainActor
+@Suite(.dependency(\.defaultDatabase, try makeDatabase()))
+struct DestinationSettingsTests {
+  let store = FakeLibraryStore()
+
+  func model(_ collector: FakeCollector) -> ChannelSettingsViewModel {
+    NativeChannelSettingsFeatureFactory(store: store, statuses: NoSourceStatus(), collector: collector)
+      .makeChannelSettings(channelID: UUID())
+  }
+
+  @Test func addsATelegramBotWithItsTokenSavedFirst() async {
+    let collector = FakeCollector(plugins: [])
+    let model = model(collector)
+    model.newDestinationKind = .telegramBot
+    model.newDestinationSecret = " 123:abc "
+    #expect(!model.canAddDestination, "a Telegram bot needs a chat")
+    model.newDestinationChatID = "@news"
+
+    await model.addDestination()
+
+    #expect(collector.calls.count == 1 && collector.calls[0].hasPrefix("set(destination."))
+    #expect(store.calls == ["addDestination(telegramBot,Telegram bot,@news)"])
+    #expect(model.newDestinationSecret.isEmpty && model.newDestinationChatID.isEmpty)
+  }
+
+  @Test func onlyTheCollectorMacSetsUpDestinations() async {
+    let collector = FakeCollector(plugins: [])
+    collector.isThisMacCollector = false
+    let model = model(collector)
+    model.newDestinationSecret = "https://discord.com/api/webhooks/1/x"
+
+    await model.addDestination()
+
+    #expect(!model.canManageDestinations && collector.calls.isEmpty && store.calls.isEmpty)
+  }
+}

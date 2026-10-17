@@ -3,7 +3,4 @@
 .swiftpm/
 xcuserdata/
 DerivedData/
-Apps/Bento.xcodeproj/
 Apps/Config/Local.xcconfig
-Apps/Bento/Info.plist
-Apps/BentoCollector/Info.plist

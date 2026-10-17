@@ -1,0 +1,550 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		4753BB78573B84D33E4E1F2D /* plugins in Resources */ = {isa = PBXBuildFile; fileRef = F958DBA1C448FAF580565A21 /* plugins */; };
+		4E35CDF7ED3BC835B2D9F0E7 /* BentoCollector.app in Embed Dependencies */ = {isa = PBXBuildFile; fileRef = 5BB1C1B94782816DF842DD6D /* BentoCollector.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		642962CE901205BBF41CB131 /* BentoData in Frameworks */ = {isa = PBXBuildFile; productRef = 616464121C9183BD51C71040 /* BentoData */; };
+		BC89F83AAA73557732BE46CE /* BentoCollectorClient in Frameworks */ = {isa = PBXBuildFile; productRef = DA16912F421A3CE229C5D5C8 /* BentoCollectorClient */; };
+		CC641B2458F2801740AB688E /* BentoUI in Frameworks */ = {isa = PBXBuildFile; productRef = D798B53BA0070171418CF418 /* BentoUI */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		F3B7F97AA720E6635682F4B7 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = FA0A4E0EE45B1F0AA0D482D4 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 93B1050CE6A6267811F98ADF;
+			remoteInfo = BentoCollector;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		259CA078DC32D43670D6F562 /* Embed Dependencies */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = Contents/Helpers;
+			dstSubfolderSpec = 1;
+			files = (
+				4E35CDF7ED3BC835B2D9F0E7 /* BentoCollector.app in Embed Dependencies */,
+			);
+			name = "Embed Dependencies";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		105F1CE70655CCC0E155DFB3 /* Bento.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Bento.xcconfig; sourceTree = "<group>"; };
+		14159219C8D4007CC62B512E /* BentoUI */ = {isa = PBXFileReference; lastKnownFileType = folder; name = BentoUI; path = ../Packages/BentoUI; sourceTree = SOURCE_ROOT; };
+		34609AF7A1B503F827768A68 /* BentoData */ = {isa = PBXFileReference; lastKnownFileType = folder; name = BentoData; path = ../Packages/BentoData; sourceTree = SOURCE_ROOT; };
+		5BB1C1B94782816DF842DD6D /* BentoCollector.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BentoCollector.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C8729164EF40727F8657E60B /* Bento.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Bento.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F958DBA1C448FAF580565A21 /* plugins */ = {isa = PBXFileReference; lastKnownFileType = folder; name = plugins; path = ../plugins; sourceTree = SOURCE_ROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		B27444B65834899E617218C0 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+				LaunchAgents/com.alexcding.bento.collector.plist,
+			);
+			target = 2F562CC01DC2970786C7333A /* Bento */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		003901C946F23485390424E3 /* Bento */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				B27444B65834899E617218C0 /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
+			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = Bento;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		633CCD55512B56001A266CF4 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				642962CE901205BBF41CB131 /* BentoData in Frameworks */,
+				BC89F83AAA73557732BE46CE /* BentoCollectorClient in Frameworks */,
+				CC641B2458F2801740AB688E /* BentoUI in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		2FCE1327ADFF9D2D9671D300 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				105F1CE70655CCC0E155DFB3 /* Bento.xcconfig */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+		D4442EF3C6E78443AF070E0C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				C8729164EF40727F8657E60B /* Bento.app */,
+				5BB1C1B94782816DF842DD6D /* BentoCollector.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		EC6F5A0254FFB9C2E0C453A2 = {
+			isa = PBXGroup;
+			children = (
+				003901C946F23485390424E3 /* Bento */,
+				2FCE1327ADFF9D2D9671D300 /* Config */,
+				F7284B61C6E1D24CEEC6A8BC /* improve-ui */,
+				F639A681A934B8FF6E37269E /* Packages */,
+				D4442EF3C6E78443AF070E0C /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		F639A681A934B8FF6E37269E /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				34609AF7A1B503F827768A68 /* BentoData */,
+				14159219C8D4007CC62B512E /* BentoUI */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
+		F7284B61C6E1D24CEEC6A8BC /* improve-ui */ = {
+			isa = PBXGroup;
+			children = (
+				F958DBA1C448FAF580565A21 /* plugins */,
+			);
+			name = "improve-ui";
+			path = ..;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		2F562CC01DC2970786C7333A /* Bento */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4036F2C9A9878D5FFFE030CE /* Build configuration list for PBXNativeTarget "Bento" */;
+			buildPhases = (
+				A51DF86A86FFE8B1D75B4989 /* Sources */,
+				ADA44DCA771A70A8117D96A9 /* Embed LaunchAgent */,
+				93B00ABFF127B64856246A65 /* Resources */,
+				633CCD55512B56001A266CF4 /* Frameworks */,
+				259CA078DC32D43670D6F562 /* Embed Dependencies */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				E1E6D8A344B25F807CFA5773 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				003901C946F23485390424E3 /* Bento */,
+			);
+			name = Bento;
+			packageProductDependencies = (
+				616464121C9183BD51C71040 /* BentoData */,
+				DA16912F421A3CE229C5D5C8 /* BentoCollectorClient */,
+				D798B53BA0070171418CF418 /* BentoUI */,
+			);
+			productName = Bento;
+			productReference = C8729164EF40727F8657E60B /* Bento.app */;
+			productType = "com.apple.product-type.application";
+		};
+		93B1050CE6A6267811F98ADF /* BentoCollector */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 64AF610E5AA7C0587AEB7821 /* Build configuration list for PBXNativeTarget "BentoCollector" */;
+			buildPhases = (
+				6120803DB29FE66D75256A27 /* Sources */,
+				2FB291E1F9DA5FB5ED50E09E /* Build bento-collector */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BentoCollector;
+			packageProductDependencies = (
+			);
+			productName = BentoCollector;
+			productReference = 5BB1C1B94782816DF842DD6D /* BentoCollector.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		FA0A4E0EE45B1F0AA0D482D4 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					2F562CC01DC2970786C7333A = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Manual;
+					};
+					93B1050CE6A6267811F98ADF = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Manual;
+					};
+				};
+			};
+			buildConfigurationList = 3DDF395391900696F4092E76 /* Build configuration list for PBXProject "Bento" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = EC6F5A0254FFB9C2E0C453A2;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				45B2269366DAA5A3460E5BBB /* XCLocalSwiftPackageReference "../Packages/BentoData" */,
+				E0EEF67B8989FE6788B3F881 /* XCLocalSwiftPackageReference "../Packages/BentoUI" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = D4442EF3C6E78443AF070E0C /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				2F562CC01DC2970786C7333A /* Bento */,
+				93B1050CE6A6267811F98ADF /* BentoCollector */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		93B00ABFF127B64856246A65 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4753BB78573B84D33E4E1F2D /* plugins in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		2FB291E1F9DA5FB5ED50E09E /* Build bento-collector */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build bento-collector";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/bento-collector",
+				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/bento-plugin-bilibili",
+				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/bento-plugin-telegram",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "exec \"${SRCROOT}/Scripts/embed-collector.sh\"\n";
+		};
+		ADA44DCA771A70A8117D96A9 /* Embed LaunchAgent */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/Bento/LaunchAgents/com.alexcding.bento.collector.plist",
+			);
+			name = "Embed LaunchAgent";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LaunchAgents/com.alexcding.bento.collector.plist",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "mkdir -p \"${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}/Library/LaunchAgents\"\ncp \"${SRCROOT}/Bento/LaunchAgents/com.alexcding.bento.collector.plist\" \\\n  \"${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}/Library/LaunchAgents/\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		6120803DB29FE66D75256A27 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A51DF86A86FFE8B1D75B4989 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		E1E6D8A344B25F807CFA5773 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 93B1050CE6A6267811F98ADF /* BentoCollector */;
+			targetProxy = F3B7F97AA720E6635682F4B7 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		36472165201221361CA95811 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "$(BENTO_COLLECTOR_ENTITLEMENTS)";
+				COMBINE_HIDPI_IMAGES = YES;
+				EXECUTABLE_NAME = "bento-collector";
+				INFOPLIST_FILE = BentoCollector/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(BENTO_BUNDLE_ID).collector";
+				PRODUCT_NAME = BentoCollector;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+			};
+			name = Debug;
+		};
+		6A2A18CF27381D12CA2503CC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = Bento/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		80BF3B3CF13A963691E29527 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "$(BENTO_COLLECTOR_ENTITLEMENTS)";
+				COMBINE_HIDPI_IMAGES = YES;
+				EXECUTABLE_NAME = "bento-collector";
+				INFOPLIST_FILE = BentoCollector/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(BENTO_BUNDLE_ID).collector";
+				PRODUCT_NAME = BentoCollector;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+			};
+			name = Release;
+		};
+		B04779F15518710C252CCB81 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = Bento/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		D3F89366518984B6AAAA0F33 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 105F1CE70655CCC0E155DFB3 /* Bento.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		E4AE3A927C23EDAA4DD96B07 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 105F1CE70655CCC0E155DFB3 /* Bento.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		3DDF395391900696F4092E76 /* Build configuration list for PBXProject "Bento" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D3F89366518984B6AAAA0F33 /* Debug */,
+				E4AE3A927C23EDAA4DD96B07 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		4036F2C9A9878D5FFFE030CE /* Build configuration list for PBXNativeTarget "Bento" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B04779F15518710C252CCB81 /* Debug */,
+				6A2A18CF27381D12CA2503CC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		64AF610E5AA7C0587AEB7821 /* Build configuration list for PBXNativeTarget "BentoCollector" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				36472165201221361CA95811 /* Debug */,
+				80BF3B3CF13A963691E29527 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		45B2269366DAA5A3460E5BBB /* XCLocalSwiftPackageReference "../Packages/BentoData" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../Packages/BentoData;
+		};
+		E0EEF67B8989FE6788B3F881 /* XCLocalSwiftPackageReference "../Packages/BentoUI" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../Packages/BentoUI;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		616464121C9183BD51C71040 /* BentoData */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = BentoData;
+		};
+		D798B53BA0070171418CF418 /* BentoUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = BentoUI;
+		};
+		DA16912F421A3CE229C5D5C8 /* BentoCollectorClient */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = BentoCollectorClient;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = FA0A4E0EE45B1F0AA0D482D4 /* Project object */;
+}

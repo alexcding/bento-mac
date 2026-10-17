@@ -43,12 +43,11 @@ final class CollectorController {
     }
   }
 
-  /// Saves pending outbox rows. Calls made while a run is in flight wait for that run instead
-  /// of starting a second one.
+  /// Saves pending outbox rows. Runs never overlap: a call made while one is in flight waits for
+  /// it, then runs again so rows written after that run started are included.
   func ingestNow() async {
-    if let ingestTask {
+    while let ingestTask {
       await ingestTask.value
-      return
     }
     let ingestor = ingestor
     let task = Task {

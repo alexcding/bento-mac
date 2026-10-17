@@ -30,6 +30,8 @@ pub const AUTH_REQUIRED: i64 = -32001;
 pub const RATE_LIMITED: i64 = -32002;
 /// Refused for good; the same request will not succeed later.
 pub const REJECTED: i64 = -32003;
+/// The request may or may not have taken effect (a connection lost mid-send).
+pub const UNCERTAIN: i64 = -32004;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProtocolError {

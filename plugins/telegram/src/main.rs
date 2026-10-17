@@ -31,6 +31,8 @@ pub const AUTH_REQUIRED: i64 = -32001;
 pub const RATE_LIMITED: i64 = -32002;
 /// Refused for good: retrying the same request cannot succeed.
 pub const REJECTED: i64 = -32003;
+/// The outcome is unknown (the connection dropped mid-send): never retried.
+pub const UNCERTAIN: i64 = -32004;
 
 /// A failed request: a JSON-RPC error code, its message and, for flood waits, how long to wait.
 #[derive(Debug)]
@@ -59,6 +61,10 @@ impl Failure {
 
     fn other(message: impl Into<String>) -> Self {
         Self::new(-32000, message)
+    }
+
+    fn uncertain(message: impl Into<String>) -> Self {
+        Self::new(UNCERTAIN, message)
     }
 
     fn rate_limited(seconds: u64) -> Self {

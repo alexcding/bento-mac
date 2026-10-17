@@ -10,7 +10,7 @@ use grammers_client::client::PasswordToken;
 use grammers_client::message::InputMessage;
 use grammers_client::sender::{ConnectionParams, NoRetries};
 use grammers_client::session::storages::MemorySession;
-use grammers_client::session::types::DcOption;
+use grammers_client::session::types::{DcOption, PeerKind};
 use grammers_client::session::{Session, SessionData};
 use grammers_client::{Client, InvocationError, SenderPool, SignInError, tl};
 use serde::{Deserialize, Serialize};
@@ -112,6 +112,17 @@ fn rpc(error: InvocationError) -> Failure {
         }
     }
     other(error)
+}
+
+/// Maps an error from the send itself. A lost connection may come after Telegram posted the
+/// message, so it is reported as uncertain and never retried.
+fn send_error(error: InvocationError) -> Failure {
+    match error {
+        InvocationError::Io(_) | InvocationError::Dropped(_) => Failure::uncertain(
+            "the connection was lost while sending (not retried: it may have been posted)",
+        ),
+        other => rpc(other),
+    }
 }
 
 fn secret<'a>(params: &'a Value, key: &str) -> Option<&'a str> {
@@ -465,7 +476,8 @@ async fn resolve(
             // Private channels have no public name; find it among the account's chats.
             let mut dialogs = client.iter_dialogs();
             while let Some(dialog) = dialogs.next().await.map_err(rpc)? {
-                if dialog.peer_id().bare_id() == Some(*id) {
+                let peer = dialog.peer_id();
+                if peer.kind() == PeerKind::Channel && peer.bare_id() == Some(*id) {
                     return Ok(dialog.peer_ref());
                 }
             }
@@ -544,13 +556,13 @@ pub async fn send(params: &Value) -> Result<Value, Failure> {
             Ok(_) => return Ok(json!({})),
             // Telegram could not fetch or use the image: post the text alone.
             Err(InvocationError::Rpc(error)) if error.code == 400 => {}
-            Err(error) => return Err(rpc(error)),
+            Err(error) => return Err(send_error(error)),
         }
     }
     let message = InputMessage::new().html(text("html")).link_preview(true);
     Box::pin(connection.client.send_message(peer, message))
         .await
-        .map_err(rpc)?;
+        .map_err(send_error)?;
     Ok(json!({}))
 }
 

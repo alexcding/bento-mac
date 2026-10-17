@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use bento_app::{PublishError, Publisher, SecretStore};
 use bento_domain::html::truncate_chars;
 use bento_domain::{DESTINATION_SECRETS, DestinationConfig, DestinationKind, Message};
-use bento_plugin_host::protocol::{ProtocolError, ProtocolPlugin, REJECTED};
+use bento_plugin_host::protocol::{ProtocolError, ProtocolPlugin, REJECTED, UNCERTAIN};
 use reqwest::{Response, StatusCode};
 use serde_json::{Value, json};
 
@@ -194,7 +194,12 @@ impl Publishers {
             .publish(chat, &html, &caption, message.image_url.as_deref())
             .await
             .map_err(|error| match error {
-                ProtocolError::Timeout(_) => PublishError::TimedOut(error.to_string()),
+                // The post may have gone out: never retried.
+                ProtocolError::Timeout(_)
+                | ProtocolError::Invalid(_)
+                | ProtocolError::Plugin {
+                    code: UNCERTAIN, ..
+                } => PublishError::TimedOut(error.to_string()),
                 ProtocolError::RateLimited(seconds) => {
                     PublishError::RateLimited(Duration::from_secs(seconds))
                 }
@@ -218,7 +223,12 @@ async fn check(response: Result<Response, reqwest::Error>) -> Result<Value, Publ
         Err(error) if error.is_timeout() => {
             return Err(PublishError::TimedOut(error.without_url().to_string()));
         }
-        Err(error) => return Err(PublishError::Failed(error.without_url().to_string())),
+        // Nothing was sent when the connection could not be made, so it is retried; any other
+        // failure may come after the post arrived.
+        Err(error) if error.is_connect() => {
+            return Err(PublishError::Failed(error.without_url().to_string()));
+        }
+        Err(error) => return Err(PublishError::TimedOut(error.without_url().to_string())),
     };
     let status = response.status();
     let header_wait = response

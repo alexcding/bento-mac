@@ -9,7 +9,7 @@ Status: early development (phase 1).
 ## Layout
 
 ```
-Apps/        macOS app (Bento.xcodeproj): app entry, collector service, menu bar, Collector window
+Apps/        macOS app (BentoMac.xcodeproj): app entry, collector service, menu bar, Collector window
 Packages/    BentoData (schema, sync; BentoCollectorClient is Mac only), BentoUI (shared SwiftUI)
 services/    Rust workspace: bento-collector daemon
 docs/        plan
@@ -20,7 +20,7 @@ docs/        plan
 Requirements: Xcode 26+, Rust (`brew install rustup && rustup default stable`).
 
 ```sh
-open Apps/Bento.xcodeproj
+open Apps/BentoMac.xcodeproj
 ```
 
 `Apps/Bento` is a synchronized folder, so new files there join the app target without editing the

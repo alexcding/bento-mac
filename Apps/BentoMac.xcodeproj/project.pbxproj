@@ -54,7 +54,7 @@
 				Info.plist,
 				LaunchAgents/com.alexcding.bento.collector.plist,
 			);
-			target = 2F562CC01DC2970786C7333A /* Bento */;
+			target = 2F562CC01DC2970786C7333A /* BentoMac */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -136,9 +136,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		2F562CC01DC2970786C7333A /* Bento */ = {
+		2F562CC01DC2970786C7333A /* BentoMac */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 4036F2C9A9878D5FFFE030CE /* Build configuration list for PBXNativeTarget "Bento" */;
+			buildConfigurationList = 4036F2C9A9878D5FFFE030CE /* Build configuration list for PBXNativeTarget "BentoMac" */;
 			buildPhases = (
 				A51DF86A86FFE8B1D75B4989 /* Sources */,
 				ADA44DCA771A70A8117D96A9 /* Embed LaunchAgent */,
@@ -154,13 +154,13 @@
 			fileSystemSynchronizedGroups = (
 				003901C946F23485390424E3 /* Bento */,
 			);
-			name = Bento;
+			name = BentoMac;
 			packageProductDependencies = (
 				616464121C9183BD51C71040 /* BentoData */,
 				DA16912F421A3CE229C5D5C8 /* BentoCollectorClient */,
 				D798B53BA0070171418CF418 /* BentoUI */,
 			);
-			productName = Bento;
+			productName = BentoMac;
 			productReference = C8729164EF40727F8657E60B /* Bento.app */;
 			productType = "com.apple.product-type.application";
 		};
@@ -201,7 +201,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 3DDF395391900696F4092E76 /* Build configuration list for PBXProject "Bento" */;
+			buildConfigurationList = 3DDF395391900696F4092E76 /* Build configuration list for PBXProject "BentoMac" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -219,7 +219,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				2F562CC01DC2970786C7333A /* Bento */,
+				2F562CC01DC2970786C7333A /* BentoMac */,
 				93B1050CE6A6267811F98ADF /* BentoCollector */,
 			);
 		};
@@ -491,7 +491,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		3DDF395391900696F4092E76 /* Build configuration list for PBXProject "Bento" */ = {
+		3DDF395391900696F4092E76 /* Build configuration list for PBXProject "BentoMac" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				D3F89366518984B6AAAA0F33 /* Debug */,
@@ -500,7 +500,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
-		4036F2C9A9878D5FFFE030CE /* Build configuration list for PBXNativeTarget "Bento" */ = {
+		4036F2C9A9878D5FFFE030CE /* Build configuration list for PBXNativeTarget "BentoMac" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				B04779F15518710C252CCB81 /* Debug */,

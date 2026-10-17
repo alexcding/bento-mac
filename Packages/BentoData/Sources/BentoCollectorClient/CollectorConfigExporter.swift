@@ -6,9 +6,11 @@ import SQLiteData
 /// Contract: `bento_domain::CollectorConfig`, fixture `services/testdata/collector-config.json`.
 public enum CollectorConfigExporter {
   /// The config as JSON with sorted keys, so unchanged settings produce identical bytes.
-  /// `utcOffsetMinutes` is the Mac's time zone, for skipping weekends.
+  /// `utcOffsetMinutes` is the Mac's time zone, for skipping weekends. Without `collecting` (this
+  /// Mac is not the collector) every source is disabled.
   public static func json(
     _ db: Database,
+    collecting: Bool = true,
     utcOffsetMinutes: Int = TimeZone.current.secondsFromGMT() / 60
   ) throws -> Data {
     let settings = try Mutations.settings(db)
@@ -24,7 +26,7 @@ public enum CollectorConfigExporter {
         "query": source.query,
         "settings": settingsObject(source.settingsJSON),
         "interval_minutes": max(source.intervalMinutes, 1),
-        "enabled": source.isEnabled && sourcesInEnabledChannels.contains(source.id),
+        "enabled": collecting && source.isEnabled && sourcesInEnabledChannels.contains(source.id),
         "translate": source.translate,
         "summarize": source.summarize,
         "fetch_detail": source.fetchDetail,

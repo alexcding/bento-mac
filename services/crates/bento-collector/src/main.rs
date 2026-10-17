@@ -73,6 +73,12 @@ enum Command {
         #[arg(long, default_value = "Hello from bento-collector")]
         title: String,
     },
+    /// Mark items as already collected, so this collector never processes or publishes them.
+    /// Used when another Mac's collector hands over.
+    Seen {
+        #[command(subcommand)]
+        action: SeenAction,
+    },
     /// Manage plugin secrets in the Keychain. Values are read from stdin and never printed.
     Secrets {
         #[command(subcommand)]
@@ -83,6 +89,12 @@ enum Command {
         #[command(subcommand)]
         action: PluginAction,
     },
+}
+
+#[derive(Subcommand)]
+enum SeenAction {
+    /// Read item IDs (one UUID per line) from stdin and mark them seen. Prints how many.
+    Import,
 }
 
 #[derive(Subcommand)]
@@ -151,6 +163,9 @@ async fn main() -> Result<()> {
             run_once(&data_dir, &store, &registry, &secrets, source, dry_run).await
         }
         Command::EmitTestItem { title } => emit_test_item(&open_store(&data_dir)?, title),
+        Command::Seen {
+            action: SeenAction::Import,
+        } => import_seen(&open_store(&data_dir)?, std::io::stdin().lock()),
         Command::Secrets { action } => {
             secrets_command(&keychain, &plugins::load(&directories, &secrets), action)
         }
@@ -327,6 +342,21 @@ async fn run_once(
     Ok(())
 }
 
+/// Marks every UUID line of `input` seen; blank and invalid lines are skipped.
+fn import_seen(store: &SqliteStore, input: impl std::io::BufRead) -> Result<()> {
+    let mut ids = Vec::new();
+    for line in input.lines() {
+        if let Ok(id) = Uuid::parse_str(line?.trim()) {
+            ids.push(id);
+        }
+    }
+    for chunk in ids.chunks(5_000) {
+        bento_app::Outbox::mark_seen(store, chunk)?;
+    }
+    println!("{}", ids.len());
+    Ok(())
+}
+
 fn secrets_command(
     keychain: &KeychainSecrets,
     registry: &PluginRegistry,
@@ -482,6 +512,26 @@ fn emit_test_item(store: &SqliteStore, title: String) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn import_seen_marks_valid_ids_and_skips_junk() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open_store(dir.path()).unwrap();
+        let known = Uuid::from_u128(7);
+
+        import_seen(&store, format!("{known}\n\nnot-a-uuid\n").as_bytes()).unwrap();
+
+        assert!(
+            bento_app::Outbox::unseen(&store, &[known, Uuid::from_u128(8)])
+                .unwrap()
+                .contains(&Uuid::from_u128(8))
+        );
+        assert!(
+            !bento_app::Outbox::unseen(&store, &[known])
+                .unwrap()
+                .contains(&known)
+        );
+    }
 
     #[test]
     fn emit_test_item_writes_one_row() {

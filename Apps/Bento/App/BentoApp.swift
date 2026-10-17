@@ -21,7 +21,11 @@ struct BentoApp: App {
       try $0.bootstrapBento(databaseURL: directory.appending(path: "bento.sqlite"), iCloudContainer: container)
     }
     @Dependency(\.defaultDatabase) var database
-    let collector = CollectorService(dataDirectory: directory, database: database)
+    let fetchRemoteChanges: (@Sendable () async throws -> Void)? = container.map { _ in
+      @Dependency(\.defaultSyncEngine) var syncEngine
+      return { try await syncEngine.fetchChanges() }
+    }
+    let collector = CollectorService(dataDirectory: directory, database: database, fetchRemoteChanges: fetchRemoteChanges)
     _collector = State(initialValue: collector)
     _collectorModel = State(initialValue: CollectorViewModel(service: collector))
     let store = NativeLibraryStore(database: database)

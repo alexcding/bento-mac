@@ -194,6 +194,17 @@ struct SettingsTests {
     #expect(!model.isSignedIn(x), "ct0 is still missing")
   }
 
+  @Test func collectOnThisMacTakesOver() async {
+    let collector = FakeCollector(plugins: [])
+    collector.isThisMacCollector = false
+    let model = SettingsViewModel(store: store, collector: collector)
+
+    await model.becomeCollector()
+
+    #expect(collector.calls == ["becomeCollector"])
+    #expect(collector.isThisMacCollector && !model.isTakingOver)
+  }
+
   @Test func presetsStartFromTheBuiltInText() {
     let model = SettingsViewModel(store: store, collector: nil)
     model.editPreset("translate")

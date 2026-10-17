@@ -21,6 +21,7 @@ public final class SettingsViewModel {
   /// Plugin ID → which secrets are set.
   private(set) var secretStatus: [String: [String: Bool]] = [:]
   private(set) var message: String?
+  private(set) var isTakingOver = false
 
   @ObservationIgnored @FetchOne(AppSettings.find(AppSettings.singletonID)) var storedSettings: AppSettings?
   @ObservationIgnored @FetchAll(AiProfile.order(by: \.position)) var profiles: [AiProfile]
@@ -43,6 +44,18 @@ public final class SettingsViewModel {
     var settings = settings
     change(&settings)
     withErrorReporting { try store.saveSettings(settings) }
+  }
+
+  func becomeCollector() async {
+    guard let collector, !isTakingOver else { return }
+    isTakingOver = true
+    defer { isTakingOver = false }
+    do {
+      try await collector.becomeCollector()
+      message = nil
+    } catch {
+      message = error.localizedDescription
+    }
   }
 
   // MARK: Plugins

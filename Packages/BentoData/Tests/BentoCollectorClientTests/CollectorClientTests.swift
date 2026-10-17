@@ -13,8 +13,8 @@ import Testing
     database = try BentoDatabase.open(at: url, iCloudContainer: nil)
   }
 
-  func exported() throws -> [String: Any] {
-    let data = try database.read { try CollectorConfigExporter.json($0, utcOffsetMinutes: 480) }
+  func exported(collecting: Bool = true) throws -> [String: Any] {
+    let data = try database.read { try CollectorConfigExporter.json($0, collecting: collecting, utcOffsetMinutes: 480) }
     return try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
   }
 
@@ -103,6 +103,18 @@ import Testing
     }
 
     let sources = try #require(try exported()["sources"] as? [[String: Any]])
+
+    #expect(sources.count == 1)
+    #expect(sources[0]["enabled"] as? Bool == false)
+  }
+
+  @Test func aMacThatIsNotTheCollectorEnablesNothing() throws {
+    try database.write { db in
+      let channel = try Mutations.addChannel(db, name: "News")
+      try Mutations.addSource(db, channelID: channel, pluginID: "rss", name: "A", query: "https://a")
+    }
+
+    let sources = try #require(try exported(collecting: false)["sources"] as? [[String: Any]])
 
     #expect(sources.count == 1)
     #expect(sources[0]["enabled"] as? Bool == false)

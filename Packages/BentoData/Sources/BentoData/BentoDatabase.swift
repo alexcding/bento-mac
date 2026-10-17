@@ -237,6 +237,10 @@ public enum BentoDatabase {
       )
       .execute(db)
     }
+    migrator.registerMigration("Add collector device") { db in
+      try #sql(#"ALTER TABLE "appSettings" ADD COLUMN "collectorDeviceID" TEXT"#).execute(db)
+      try #sql(#"ALTER TABLE "appSettings" ADD COLUMN "collectorDeviceName" TEXT"#).execute(db)
+    }
     return migrator
   }
 }

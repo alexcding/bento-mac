@@ -72,6 +72,7 @@ final class FakeCollector: CollectorControlling {
   var summary = RunSummary(fetched: 3, new: 2)
   var events: [LoginEvent] = []
   var sentInputs: [String] = []
+  var isThisMacCollector = true
 
   init(plugins: [PluginInfo]) {
     self.plugins = plugins
@@ -81,6 +82,10 @@ final class FakeCollector: CollectorControlling {
   func setSecret(pluginID: String, key: String, value: String) async throws { calls.append("set(\(pluginID).\(key))") }
   func deleteSecret(pluginID: String, key: String) async throws { calls.append("delete(\(pluginID).\(key))") }
   func startLogin(pluginID: String) -> any LoginSession { FakeLoginSession(events: events, collector: self) }
+  func becomeCollector() async throws {
+    calls.append("becomeCollector")
+    isThisMacCollector = true
+  }
   func fetchNow(sourceID: Source.ID) async throws -> RunSummary { summary }
   func preview(sourceID: Source.ID) async throws -> PreviewResult { PreviewResult(items: [item()], aiFailures: []) }
 }

@@ -11,6 +11,9 @@ private let logger = Logger(subsystem: "Bento", category: "Collector")
 /// Owns the `bento-collector` LaunchAgent: starts, stops and restarts it, writes its config from
 /// the synced database, moves its outbox into the synced database, and reads its status.
 /// Lives as long as the app, independent of any window.
+///
+/// One Mac collects (`AppSettings.collectorDeviceID`); the first to launch claims the role. On any
+/// other Mac the agent stays stopped and its config enables no source.
 @MainActor
 @Observable
 final class CollectorService: SourceStatusProviding {
@@ -21,6 +24,9 @@ final class CollectorService: SourceStatusProviding {
   private(set) var lastError: String?
   private(set) var statuses: [Source.ID: SourceStatus] = [:]
   private(set) var plugins: [PluginInfo] = []
+  private(set) var isThisMacCollector = false
+  /// The collector Mac's name, from the synced settings.
+  private(set) var collectorDeviceName: String?
 
   let dataDirectory: URL
   var collectorURL: URL { dataDirectory.appending(path: "collector.sqlite") }
@@ -32,21 +38,30 @@ final class CollectorService: SourceStatusProviding {
   @ObservationIgnored private let ingestor: OutboxIngestor
   @ObservationIgnored private var pollTask: Task<Void, Never>?
   @ObservationIgnored private var syncTask: Task<Void, Never>?
+  @ObservationIgnored private let device = CollectorDevice.current
+  /// Pulls pending iCloud changes; nil when sync is off.
+  @ObservationIgnored private let fetchRemoteChanges: (@Sendable () async throws -> Void)?
+  /// Set once launch has settled who collects, so the agent is not stopped or started before.
+  @ObservationIgnored private var roleResolved = false
+  @ObservationIgnored private var agentReconciled = false
 
   /// Polling interval for config, outbox and status.
   private static let pollInterval = Duration.seconds(5)
   /// Set when the user stops the collector, so launching the app does not restart it.
   private static let stoppedByUserKey = "collectorStoppedByUser"
 
-  init(dataDirectory: URL, database: any DatabaseWriter) {
+  init(
+    dataDirectory: URL,
+    database: any DatabaseWriter,
+    fetchRemoteChanges: (@Sendable () async throws -> Void)?
+  ) {
     self.dataDirectory = dataDirectory
     self.database = database
+    self.fetchRemoteChanges = fetchRemoteChanges
     ingestor = OutboxIngestor(collectorURL: dataDirectory.appending(path: "collector.sqlite"), database: database)
     agentStatus = agent.status
-    if agent.status == .notRegistered, !UserDefaults.standard.bool(forKey: Self.stoppedByUserKey) {
-      start()
-    }
     pollTask = Task { [weak self] in
+      await self?.resolveRole()
       while !Task.isCancelled {
         await self?.sync()
         try? await Task.sleep(for: Self.pollInterval)
@@ -72,15 +87,18 @@ final class CollectorService: SourceStatusProviding {
   }
 
   private func performSync() async {
-    let (database, ingestor, configURL, collectorURL) = (database, ingestor, configURL, collectorURL)
+    let (database, ingestor, configURL, collectorURL, deviceID) = (database, ingestor, configURL, collectorURL, device.id)
     do {
       let result = try await Task.detached(priority: .utility) {
-        let config = try database.read { try CollectorConfigExporter.json($0) }
+        let (config, settings) = try database.read { db in
+          let settings = try Mutations.settings(db)
+          return (try CollectorConfigExporter.json(db, collecting: settings.collectorDeviceID == deviceID), settings)
+        }
         try CollectorConfigExporter.write(config, to: configURL)
         let saved = try ingestor.ingestPending()
         let statuses = try CollectorStatusReader.read(collectorURL: collectorURL)
         let plugins = try CollectorDiagnostics.plugins(collectorURL: collectorURL)
-        return (saved, statuses, plugins)
+        return (saved, statuses, plugins, settings)
       }.value
       lastSync = (.now, result.0)
       statuses = result.1
@@ -88,12 +106,79 @@ final class CollectorService: SourceStatusProviding {
         PluginInfo(id: $0.id, name: $0.name, version: $0.version, manifest: $0.manifest, requirements: $0.requirements, error: $0.error)
       }
       if plugins != self.plugins { self.plugins = plugins }
+      collectorDeviceName = result.3.collectorDeviceName
+      let wasCollector = isThisMacCollector
+      isThisMacCollector = result.3.collectorDeviceID == deviceID
       lastError = nil
+      if roleResolved, !agentReconciled || wasCollector != isThisMacCollector {
+        agentReconciled = true
+        await reconcileAgent()
+      }
       agentStatus = agent.status
       if result.0 > 0 { logger.info("Saved \(result.0) outbox rows") }
     } catch {
       lastError = error.localizedDescription
       logger.error("Collector sync failed: \(error)")
+    }
+  }
+
+  /// At launch: once iCloud has caught up, claims the collector role when no Mac has it.
+  private func resolveRole() async {
+    do {
+      try await takeOver(onlyIfUnset: true)
+    } catch {
+      lastError = error.localizedDescription
+      logger.error("Claiming the collector role failed: \(error)")
+    }
+    roleResolved = true
+  }
+
+  /// Makes this Mac the collector. Its daemon first marks every item already in the library as
+  /// seen, so nothing another Mac collected is processed or published again.
+  func takeOver(onlyIfUnset: Bool) async throws {
+    await pullRemoteChanges()
+    let (database, device) = (database, device)
+    if onlyIfUnset, try await database.read({ try Mutations.settings($0).collectorDeviceID }) != nil { return }
+    let ids = try await database.read { try Mutations.feedItemIDs($0) }
+    _ = try await CollectorCommand.run(
+      ["seen", "import"],
+      input: Data(ids.map { $0.uuidString.lowercased() }.joined(separator: "\n").utf8)
+    )
+    _ = try await database.write {
+      try Mutations.claimCollector($0, deviceID: device.id, deviceName: device.name, onlyIfUnset: onlyIfUnset)
+    }
+    if !onlyIfUnset { UserDefaults.standard.removeObject(forKey: Self.stoppedByUserKey) }
+    logger.info("This Mac collects now (\(ids.count) items marked seen)")
+    await sync()
+  }
+
+  /// Fetches pending iCloud changes, giving up after 30 seconds (offline, signed out).
+  private func pullRemoteChanges() async {
+    guard let fetchRemoteChanges else { return }
+    let fetch = Task { try await fetchRemoteChanges() }
+    let timeout = Task {
+      try await Task.sleep(for: .seconds(30))
+      fetch.cancel()
+    }
+    defer { timeout.cancel() }
+    do {
+      try await fetch.value
+    } catch {
+      logger.warning("Fetching iCloud changes failed: \(error)")
+    }
+  }
+
+  /// Runs the agent on the collector Mac (unless the user stopped it) and stops it elsewhere.
+  private func reconcileAgent() async {
+    if isThisMacCollector {
+      if agent.status == .notRegistered, !UserDefaults.standard.bool(forKey: Self.stoppedByUserKey) { start() }
+    } else if agent.status != .notRegistered {
+      do {
+        try await agent.unregister()
+        logger.info("Stopped the collector: \(self.collectorDeviceName ?? "another Mac") collects")
+      } catch {
+        lastError = error.localizedDescription
+      }
     }
   }
 
@@ -142,6 +227,23 @@ final class CollectorService: SourceStatusProviding {
     }
     agentStatus = agent.status
   }
+}
+
+/// This Mac, as the collector role knows it: a random ID in local (never synced) defaults.
+struct CollectorDevice: Sendable {
+  let id: UUID
+  let name: String
+
+  static let current: CollectorDevice = {
+    let key = "collectorDeviceID"
+    let defaults = UserDefaults.standard
+    let id = defaults.string(forKey: key).flatMap(UUID.init(uuidString:)) ?? {
+      let id = UUID()
+      defaults.set(id.uuidString, forKey: key)
+      return id
+    }()
+    return CollectorDevice(id: id, name: Host.current().localizedName ?? "Mac")
+  }()
 }
 
 enum CollectorError: LocalizedError {

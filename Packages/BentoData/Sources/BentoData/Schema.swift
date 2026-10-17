@@ -140,6 +140,10 @@ public nonisolated struct AppSettings: Hashable, Identifiable, Sendable {
   public let id: UUID
   public var maxItemAgeHours = 72
   public var skipWeekends = false
+  /// The one Mac that collects and publishes; every other device only reads. Set by
+  /// `Mutations.claimCollector`.
+  public var collectorDeviceID: UUID?
+  public var collectorDeviceName: String?
 
   public init(id: UUID = AppSettings.singletonID) {
     self.id = id

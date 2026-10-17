@@ -151,4 +151,26 @@ public enum Mutations {
   public static func saveSettings(_ db: Database, _ settings: AppSettings) throws {
     try AppSettings.upsert { settings }.execute(db)
   }
+
+  /// Makes a device the collector. With `onlyIfUnset`, does nothing when one is already set.
+  /// - Returns: Whether the device is now the collector.
+  @discardableResult
+  public static func claimCollector(
+    _ db: Database,
+    deviceID: UUID,
+    deviceName: String,
+    onlyIfUnset: Bool = false
+  ) throws -> Bool {
+    var settings = try settings(db)
+    if onlyIfUnset, let current = settings.collectorDeviceID { return current == deviceID }
+    settings.collectorDeviceID = deviceID
+    settings.collectorDeviceName = deviceName
+    try saveSettings(db, settings)
+    return true
+  }
+
+  /// Every item ID in the library, for a new collector to treat as already collected.
+  public static func feedItemIDs(_ db: Database) throws -> [FeedItem.ID] {
+    try FeedItem.select(\.id).fetchAll(db)
+  }
 }

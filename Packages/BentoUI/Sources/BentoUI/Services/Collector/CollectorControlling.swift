@@ -7,13 +7,19 @@ import Foundation
 public protocol CollectorControlling: AnyObject {
   /// Plugins the collector loaded (or failed to load), refreshed as it republishes its catalog.
   var plugins: [PluginInfo] { get }
+  /// Whether this Mac is the one collector. Other Macs only read what it collects; the synced
+  /// `AppSettings.collectorDeviceName` says which Mac that is.
+  var isThisMacCollector: Bool { get }
+  /// Moves collecting and publishing to this Mac. Items already in the library count as
+  /// collected, so none is processed or published again.
+  func becomeCollector() async throws
   /// Which of a plugin's secrets are set. Values never leave the collector.
   func secretStatus(pluginID: String) async throws -> [String: Bool]
   func setSecret(pluginID: String, key: String, value: String) async throws
   func deleteSecret(pluginID: String, key: String) async throws
   /// Starts an interactive login (QR code, phone code).
   func startLogin(pluginID: String) -> any LoginSession
-  /// Runs a source now, whatever its schedule.
+  /// Runs a source now, whatever its schedule. Only on the collector Mac.
   func fetchNow(sourceID: Source.ID) async throws -> RunSummary
   /// What a source's next run would add, without storing anything.
   func preview(sourceID: Source.ID) async throws -> PreviewResult

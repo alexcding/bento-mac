@@ -6,7 +6,11 @@ struct MenuBarView: View {
   @Environment(\.openWindow) private var openWindow
 
   var body: some View {
-    Text("Collector: \(service.agentStatus.label)")
+    if service.isThisMacCollector {
+      Text("Collector: \(service.agentStatus.label)")
+    } else {
+      Text("Collecting on \(service.collectorDeviceName ?? "no Mac yet")")
+    }
     if let sync = service.lastSync {
       Text("Last sync \(sync.date.formatted(date: .omitted, time: .standard)) · \(sync.saved) new")
     }
@@ -24,7 +28,9 @@ struct MenuBarView: View {
     }
     Button("Sync Now") { Task { await service.sync() } }
     Divider()
-    switch service.agentStatus {
+    switch service.isThisMacCollector ? service.agentStatus : nil {
+    case nil:
+      Button("Collect on This Mac") { Task { try? await service.becomeCollector() } }
     case .enabled:
       Button("Restart Collector") { Task { await service.restart() } }
       Button("Stop Collector") { Task { await service.stop() } }

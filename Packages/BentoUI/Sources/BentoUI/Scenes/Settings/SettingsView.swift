@@ -46,6 +46,27 @@ private struct GeneralSettingsView: View {
 
   var body: some View {
     Form {
+      if let collector = model.collector {
+        Section {
+          if collector.isThisMacCollector {
+            Label("This Mac collects and publishes", systemImage: "checkmark.circle")
+          } else {
+            LabeledContent("Collecting on", value: model.settings.collectorDeviceName ?? "No Mac yet")
+            HStack {
+              Button("Collect on This Mac") { Task { await model.becomeCollector() } }
+              if model.isTakingOver { ProgressView().controlSize(.small) }
+            }
+            .disabled(model.isTakingOver)
+          }
+          if let message = model.message {
+            Text(message).font(.caption).foregroundStyle(.orange)
+          }
+        } header: {
+          Text("Collector")
+        } footer: {
+          Text("One Mac collects and publishes for all your devices. The others read what it collects through iCloud.")
+        }
+      }
       Section("Collecting") {
         Stepper(
           "Skip posts older than \(model.settings.maxItemAgeHours) hours",

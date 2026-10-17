@@ -140,6 +140,26 @@ import Testing
     }
   }
 
+  @Test func firstClaimWinsUnlessTakenOver() throws {
+    let (first, second) = (UUID(), UUID())
+    try database.write { db in
+      #expect(try Mutations.claimCollector(db, deviceID: first, deviceName: "Studio", onlyIfUnset: true))
+      #expect(try !Mutations.claimCollector(db, deviceID: second, deviceName: "Laptop", onlyIfUnset: true))
+      #expect(try Mutations.settings(db).collectorDeviceName == "Studio")
+
+      try Mutations.claimCollector(db, deviceID: second, deviceName: "Laptop")
+      let settings = try Mutations.settings(db)
+      #expect(settings.collectorDeviceID == second && settings.collectorDeviceName == "Laptop")
+    }
+  }
+
+  @Test func feedItemIDsListsEveryItem() throws {
+    try database.write { db in
+      let items = try [insertItem(db), insertItem(db)]
+      #expect(Set(try Mutations.feedItemIDs(db)) == Set(items.map(\.id)))
+    }
+  }
+
   @Test func sourceLimitLivesInSettingsJSON() {
     var source = Source(id: UUID())
     #expect(source.limit == nil)
@@ -167,6 +187,7 @@ import Testing
       #expect(old.aiTaskKeys.isEmpty && !old.skipInitialBacklog, "existing rows get the defaults")
       try Mutations.saveAiProfile(db, AiProfile())
       #expect(try Mutations.settings(db).maxItemAgeHours == 72)
+      #expect(try Mutations.settings(db).collectorDeviceID == nil)
     }
   }
 }

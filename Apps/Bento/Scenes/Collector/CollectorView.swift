@@ -34,7 +34,12 @@ struct CollectorView: View {
       Circle()
         .fill(model.service.agentStatus == .enabled ? .green : .orange)
         .frame(width: 8, height: 8)
-      Text("Collector: \(model.service.agentStatus.label)").font(.headline)
+      Text(
+        model.service.isThisMacCollector
+          ? "Collector: \(model.service.agentStatus.label)"
+          : "Collecting on \(model.service.collectorDeviceName ?? "no Mac yet")"
+      )
+      .font(.headline)
       if let sync = model.service.lastSync {
         Text("Last sync \(sync.date.formatted(date: .omitted, time: .standard)) · \(sync.saved) new")
           .foregroundStyle(.secondary)
@@ -50,7 +55,9 @@ struct CollectorView: View {
 
   @ViewBuilder
   private var controls: some View {
-    switch model.service.agentStatus {
+    switch model.service.isThisMacCollector ? model.service.agentStatus : nil {
+    case nil:
+      Button("Collect on This Mac") { Task { try? await model.service.becomeCollector() } }
     case .enabled:
       Button("Restart") { Task { await model.service.restart() } }
       Button("Stop") { Task { await model.service.stop() } }

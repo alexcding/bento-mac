@@ -68,10 +68,11 @@ struct SourceEditorView: View {
           LabeledContent("Next fetch", value: status.nextRunAt.formatted(.relative(presentation: .named)))
         }
       }
-      if model.collector != nil {
+      if let collector = model.collector {
         Section {
           HStack {
             Button("Fetch Now") { Task { await model.fetchNow() } }
+              .disabled(!collector.isThisMacCollector)
             Button("Preview") { Task { await model.loadPreview() } }
             if model.isWorking { ProgressView().controlSize(.small) }
           }
@@ -80,7 +81,11 @@ struct SourceEditorView: View {
             Text(message).font(.caption).foregroundStyle(.secondary)
           }
         } footer: {
-          Text("Preview fetches and processes the next items without saving them.")
+          Text(
+            collector.isThisMacCollector
+              ? "Preview fetches and processes the next items without saving them."
+              : "Preview fetches and processes the next items without saving them. Only the collector Mac fetches."
+          )
         }
       }
     }

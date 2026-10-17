@@ -23,7 +23,14 @@ extension CollectorService: CollectorControlling {
     CollectorLoginSession(pluginID: pluginID)
   }
 
+  func becomeCollector() async throws {
+    try await takeOver(onlyIfUnset: false)
+  }
+
   func fetchNow(sourceID: Source.ID) async throws -> RunSummary {
+    guard isThisMacCollector else {
+      throw CollectorCommand.Failure(message: "Only the collector Mac fetches (\(collectorDeviceName ?? "none set"))")
+    }
     await sync()  // the collector reads the latest config
     let output = try await CollectorCommand.run(["run-once", "--source", sourceID.uuidString.lowercased()])
     let json = try JSONSerialization.jsonObject(with: output) as? [String: Any] ?? [:]

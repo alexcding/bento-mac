@@ -81,6 +81,9 @@ enum CollectorCommand {
       process.standardOutput = stdout
       process.standardError = stderr
       process.standardInput = stdin
+      // Input larger than the pipe buffer blocks; if the process exits first, fail with EPIPE
+      // rather than kill the app with SIGPIPE.
+      _ = fcntl(stdin.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
       try process.run()
       if let input { try stdin.fileHandleForWriting.write(contentsOf: input) }
       try stdin.fileHandleForWriting.close()

@@ -147,9 +147,13 @@ import Testing
       #expect(try !Mutations.claimCollector(db, deviceID: second, deviceName: "Laptop", onlyIfUnset: true))
       #expect(try Mutations.settings(db).collectorDeviceName == "Studio")
 
+      var edited = try Mutations.settings(db)
+      edited.skipWeekends = true
+      try Mutations.saveSettings(db, edited)
       try Mutations.claimCollector(db, deviceID: second, deviceName: "Laptop")
       let settings = try Mutations.settings(db)
       #expect(settings.collectorDeviceID == second && settings.collectorDeviceName == "Laptop")
+      #expect(settings.skipWeekends, "other settings are untouched")
     }
   }
 

@@ -153,6 +153,7 @@ public enum Mutations {
   }
 
   /// Makes a device the collector. With `onlyIfUnset`, does nothing when one is already set.
+  /// Writes only the collector columns, so settings edited on another device are never reset.
   /// - Returns: Whether the device is now the collector.
   @discardableResult
   public static func claimCollector(
@@ -161,11 +162,19 @@ public enum Mutations {
     deviceName: String,
     onlyIfUnset: Bool = false
   ) throws -> Bool {
-    var settings = try settings(db)
-    if onlyIfUnset, let current = settings.collectorDeviceID { return current == deviceID }
-    settings.collectorDeviceID = deviceID
-    settings.collectorDeviceName = deviceName
-    try saveSettings(db, settings)
+    guard let existing = try AppSettings.find(AppSettings.singletonID).fetchOne(db) else {
+      var settings = AppSettings()
+      settings.collectorDeviceID = deviceID
+      settings.collectorDeviceName = deviceName
+      try AppSettings.insert { settings }.execute(db)
+      return true
+    }
+    if onlyIfUnset, let current = existing.collectorDeviceID { return current == deviceID }
+    try AppSettings.find(AppSettings.singletonID).update {
+      $0.collectorDeviceID = #bind(deviceID)
+      $0.collectorDeviceName = #bind(deviceName)
+    }
+    .execute(db)
     return true
   }
 

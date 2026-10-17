@@ -209,9 +209,9 @@ plugins/<id>/
 - **CLI plugins** (YouTube via `yt-dlp`, X via `twitter-cli`): `plugin.json` maps each operation
   to a command template, and `mapping.json` maps the command's JSON output to raw-item fields.
   No code.
-- **Protocol plugins** (Bilibili with QR login): an executable speaking JSON-RPC 2.0 over
-  stdin/stdout, like LSP and MCP. Methods: `initialize`, `configure`, `auth/begin`, `auth/step`,
-  `source/fetch`, `publisher/send`, `health`.
+- **Protocol plugins**: an executable answering one JSON-RPC 2.0 request per run (`source/fetch`,
+  `auth/begin`, `auth/step`; spec in `plugins/PROTOCOL.md`). Bilibili (QR login) and Telegram (public
+  channels through `t.me/s`, no login) are Rust protocol plugins bundled in the app.
 - **Built-in** (RSS, publishers): Rust code in the daemon behind the same port.
 - The daemon enforces timeouts, concurrency, rate limits and backoff, passes only that plugin's
   Keychain secrets, validates output against the raw-item schema, and checks the protocol version.
@@ -258,11 +258,11 @@ with sync off.
 | 0 | Project, packages, Cargo workspace, daemon skeleton as LaunchAgent, news tables, iCloud sync | A row Rust writes to the outbox reaches a second device through the app; first-sync time measured with a year of synthetic items |
 | 1 | RSS end to end: scheduler, task queue, built-in RSS, outbox → app; native reader (feed by day, filters, search, detail, bookmarks) | A subscribed RSS feed shows up on the Mac and on a second device; bookmarks sync |
 | 2 | Plugin host + test kit; X, Reddit, YouTube, Bilibili, Telegram, Xiaohongshu; detail extraction; AI service with CLI and HTTP providers and configurable steps; run options; Mac settings screens | Every source runs unattended for a week with no duplicates or crashes |
-| 3 | Discord, Telegram bot, Telegram account (`grammers`), X posting | A week with no duplicate or missed sends |
+| 3 | Discord, Telegram bot, Telegram account (`grammers`: sending and private channels), X posting | A week with no duplicate or missed sends |
 
 Phase 2 ships in slices, each reviewed twice: **2a** plugin host, manifest and mapping, CLI plugins (X,
 Reddit, YouTube, Xiaohongshu), dependency checks, Keychain secrets; **2b** AI service and article text
-extraction; **2c** code plugins with login (Bilibili QR, Telegram via `grammers`); **2d** run options and the
+extraction; **2c** protocol plugins (Bilibili with QR login, Telegram public channels; Telegram account login and private channels come with phase 3's `grammers` work); **2d** run options and the
 Mac settings screens (plugins, AI profiles and tasks, logins, dependencies).
 | Later | iOS reader, read-only local JSON API, notes | — |
 

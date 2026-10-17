@@ -17,8 +17,8 @@ use crate::config_file::ConfigFile;
 const TICK: Duration = Duration::from_secs(2);
 const SEND_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Runs until `shutdown` turns true. A post in flight finishes first, so it is recorded as sent
-/// and never posted again.
+/// Runs until `shutdown` turns true. No new post starts after that; one already in flight is
+/// recorded when it finishes, or, if the process exits first, marked failed on the next start.
 pub fn spawn(
     data_dir: &Path,
     store: Arc<SqliteStore>,
@@ -27,15 +27,25 @@ pub fn spawn(
 ) -> JoinHandle<()> {
     let mut config_file = ConfigFile::new(data_dir.join("collector-config.json"));
     let publishers = Arc::new(Publishers::new(secrets, TELEGRAM_API, SEND_TIMEOUT));
-    let deliverer = Deliverer::new(store, publishers, SystemClock);
     tokio::spawn(async move {
+        let deliverer = match Deliverer::new(store, publishers, SystemClock) {
+            Ok(deliverer) => deliverer,
+            Err(error) => {
+                tracing::error!(%error, "posting is off: the delivery queue cannot be read");
+                return;
+            }
+        };
         let mut config = CollectorConfig::default();
         while !*shutdown.borrow() {
             crate::reload(&mut config_file, &mut config);
             if let Err(error) = deliverer.plan(&config) {
                 tracing::error!(%error, "queuing posts failed");
             }
-            match deliverer.send_due(&config).await {
+            let stopping = shutdown.clone();
+            match deliverer
+                .send_due(&config, &move || !*stopping.borrow())
+                .await
+            {
                 Ok(reports) => {
                     for report in reports {
                         match report.outcome {

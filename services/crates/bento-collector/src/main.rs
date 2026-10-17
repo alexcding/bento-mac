@@ -33,8 +33,8 @@ const TEST_SOURCE_ID: Uuid = Uuid::from_u128(0x0000_0000_0000_4000_8000_0000_000
 /// How often the daemon reloads its config and checks for due sources.
 const TICK: Duration = Duration::from_secs(15);
 
-/// How long shutdown waits for a post in flight (each send times out after 30 s; launchd allows
-/// 20 s before it kills the process, so this stays below).
+/// How long shutdown waits for a post in flight. launchd allows 20 s before it kills the
+/// process; a post still sending then is marked failed on the next start, never sent twice.
 const DELIVERY_SHUTDOWN: Duration = Duration::from_secs(15);
 /// How often plugin requirements are re-checked and the catalog republished.
 const CATALOG_INTERVAL: Duration = Duration::from_mins(10);

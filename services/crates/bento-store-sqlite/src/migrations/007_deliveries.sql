@@ -2,7 +2,7 @@
 
 -- Posts to destinations (Discord, Telegram). Fed from the outbox through `meta.delivery_seq`;
 -- the app reads this table for delivery status. Times are Unix milliseconds. `state` is
--- 'pending', 'sent' or 'failed'.
+-- 'pending', 'sending' (a request in flight), 'sent' or 'failed'.
 CREATE TABLE deliveries (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   destination_id  TEXT    NOT NULL,

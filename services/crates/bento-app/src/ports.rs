@@ -152,6 +152,8 @@ pub struct Delivery {
     pub referenced: Option<FeedItem>,
     /// Failed attempts so far.
     pub attempts: u32,
+    /// Not sent before this (a retry wait).
+    pub next_attempt_at: DateTime<Utc>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -179,8 +181,18 @@ pub trait DeliveryStore: Send + Sync {
         deliveries: &[(Uuid, Uuid, i64)],
         now: DateTime<Utc>,
     ) -> Result<(), PortError>;
-    /// Pending deliveries due at `now`, oldest first.
-    fn due_deliveries(&self, now: DateTime<Utc>, limit: usize) -> Result<Vec<Delivery>, PortError>;
+    /// Each destination's oldest pending delivery, due or not.
+    fn next_deliveries(&self) -> Result<Vec<Delivery>, PortError>;
+    /// Marks a delivery as being sent, so a crash mid-send is never followed by a second send.
+    fn start_delivery(&self, id: i64) -> Result<(), PortError>;
+    /// Fails every delivery left marked as being sent.
+    fn fail_interrupted_deliveries(&self, error: &str) -> Result<(), PortError>;
+    /// Delays the destinations' pending deliveries until at least `until`.
+    fn postpone_deliveries(
+        &self,
+        destination_ids: &[Uuid],
+        until: DateTime<Utc>,
+    ) -> Result<(), PortError>;
     /// When a post last went out to the destination.
     fn last_sent_at(&self, destination_id: Uuid) -> Result<Option<DateTime<Utc>>, PortError>;
     fn finish_delivery(
@@ -277,8 +289,24 @@ impl<T: DeliveryStore + ?Sized> DeliveryStore for std::sync::Arc<T> {
         (**self).queue_deliveries(through_seq, deliveries, now)
     }
 
-    fn due_deliveries(&self, now: DateTime<Utc>, limit: usize) -> Result<Vec<Delivery>, PortError> {
-        (**self).due_deliveries(now, limit)
+    fn next_deliveries(&self) -> Result<Vec<Delivery>, PortError> {
+        (**self).next_deliveries()
+    }
+
+    fn start_delivery(&self, id: i64) -> Result<(), PortError> {
+        (**self).start_delivery(id)
+    }
+
+    fn fail_interrupted_deliveries(&self, error: &str) -> Result<(), PortError> {
+        (**self).fail_interrupted_deliveries(error)
+    }
+
+    fn postpone_deliveries(
+        &self,
+        destination_ids: &[Uuid],
+        until: DateTime<Utc>,
+    ) -> Result<(), PortError> {
+        (**self).postpone_deliveries(destination_ids, until)
     }
 
     fn last_sent_at(&self, destination_id: Uuid) -> Result<Option<DateTime<Utc>>, PortError> {

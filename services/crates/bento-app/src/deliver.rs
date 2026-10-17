@@ -2,7 +2,7 @@
 //! new outbox item, then sends them one at a time per destination, spaced by its post delay.
 
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 
 use bento_domain::{CollectorConfig, DestinationKind, Message};
 use chrono::{DateTime, Duration, Utc};
@@ -30,24 +30,31 @@ pub struct Deliverer<S, C> {
     store: S,
     publisher: Arc<dyn Publisher>,
     clock: C,
-    /// A Telegram flood wait applies to the bot, so it pauses every Telegram destination.
-    telegram_paused_until: Mutex<Option<DateTime<Utc>>>,
 }
 
 impl<S: DeliveryStore, C: Clock> Deliverer<S, C> {
-    pub fn new(store: S, publisher: Arc<dyn Publisher>, clock: C) -> Self {
-        Self {
+    /// Posts left half-sent by a previous run are marked failed, never sent again: they may have
+    /// gone out.
+    pub fn new(store: S, publisher: Arc<dyn Publisher>, clock: C) -> Result<Self, PortError> {
+        store.fail_interrupted_deliveries(
+            "interrupted while sending (not retried: it may have been posted)",
+        )?;
+        Ok(Self {
             store,
             publisher,
             clock,
-            telegram_paused_until: Mutex::new(None),
-        }
+        })
     }
 
     /// Queues deliveries for outbox items appended since the last pass. An item that another new
     /// item quotes is posted inside that item, not on its own. Returns how many were queued.
     pub fn plan(&self, config: &CollectorConfig) -> Result<usize, PortError> {
-        let rows = self.store.undelivered_outbox(PLAN_BATCH)?;
+        let mut rows = self.store.undelivered_outbox(PLAN_BATCH)?;
+        // A quoted item is appended just before the item quoting it, so a full batch leaves its
+        // last row for the next pass, where it is read together with what follows.
+        if rows.len() == PLAN_BATCH {
+            rows.pop();
+        }
         let Some(&(through_seq, _)) = rows.last() else {
             return Ok(0);
         };
@@ -75,16 +82,19 @@ impl<S: DeliveryStore, C: Clock> Deliverer<S, C> {
         Ok(queued.len())
     }
 
-    /// Sends at most one due post per destination, once its post delay has passed since the
-    /// last post.
-    pub async fn send_due(&self, config: &CollectorConfig) -> Result<Vec<SendReport>, PortError> {
-        let now = self.clock.now();
-        let mut busy = HashSet::new();
+    /// Sends each destination's oldest waiting post, once it is due and the destination's post
+    /// delay has passed. Posts go out in order: one waiting to retry holds back the rest.
+    /// `keep_going` is checked before each send, so shutdown never cuts one short.
+    pub async fn send_due(
+        &self,
+        config: &CollectorConfig,
+        keep_going: &(dyn Fn() -> bool + Sync),
+    ) -> Result<Vec<SendReport>, PortError> {
         let mut reports = Vec::new();
-        for delivery in self.store.due_deliveries(now, 200)? {
-            if !busy.insert(delivery.destination_id) {
-                continue;
-            }
+        // Set by a flood wait in this pass; later passes see it in the postponed rows.
+        let mut telegram_waits = false;
+        for delivery in self.store.next_deliveries()? {
+            let now = self.clock.now();
             let destination = config
                 .destinations
                 .iter()
@@ -94,21 +104,17 @@ impl<S: DeliveryStore, C: Clock> Deliverer<S, C> {
                 self.store.finish_delivery(delivery.id, &outcome, now)?;
                 continue;
             };
-            let telegram = destination.kind == DestinationKind::TelegramBot;
-            if telegram
-                && self
-                    .telegram_paused_until()
-                    .is_some_and(|until| now < until)
-            {
-                continue;
-            }
             let delay = Duration::seconds(i64::from(destination.post_delay_seconds));
-            if self
+            let spaced = self
                 .store
                 .last_sent_at(destination.id)?
-                .is_some_and(|last| now < last + delay)
-            {
+                .is_none_or(|last| now >= last + delay);
+            let telegram = destination.kind == DestinationKind::TelegramBot;
+            if delivery.next_attempt_at > now || !spaced || (telegram && telegram_waits) {
                 continue;
+            }
+            if !keep_going() {
+                break;
             }
             let source_name = config
                 .sources
@@ -116,16 +122,28 @@ impl<S: DeliveryStore, C: Clock> Deliverer<S, C> {
                 .find(|s| s.id == delivery.item.source_id)
                 .map_or("", |s| s.name.as_str());
             let message = Message::new(&delivery.item, delivery.referenced.as_ref(), source_name);
+            self.store.start_delivery(delivery.id)?;
             let result = self.publisher.publish(destination, &message).await;
             let now = self.clock.now();
-            if telegram && let Err(PublishError::RateLimited(wait)) = &result {
-                *self
-                    .telegram_paused_until
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner) = Some(now + to_chrono(*wait));
-            }
             let outcome = outcome(&delivery, result, now);
             self.store.finish_delivery(delivery.id, &outcome, now)?;
+            if let DeliveryOutcome::Retry {
+                at,
+                failed_attempt: false,
+                ..
+            } = &outcome
+                && telegram
+            {
+                telegram_waits = true;
+                // A flood wait applies to the bot, so every Telegram destination waits.
+                let telegram: Vec<_> = config
+                    .destinations
+                    .iter()
+                    .filter(|d| d.kind == DestinationKind::TelegramBot)
+                    .map(|d| d.id)
+                    .collect();
+                self.store.postpone_deliveries(&telegram, *at)?;
+            }
             reports.push(SendReport {
                 delivery_id: delivery.id,
                 destination: destination.name.clone(),
@@ -133,13 +151,6 @@ impl<S: DeliveryStore, C: Clock> Deliverer<S, C> {
             });
         }
         Ok(reports)
-    }
-
-    fn telegram_paused_until(&self) -> Option<DateTime<Utc>> {
-        *self
-            .telegram_paused_until
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
     }
 }
 
@@ -242,15 +253,16 @@ mod tests {
             *self.cursor.lock().unwrap() = through;
             Ok(())
         }
-        fn due_deliveries(&self, now: DateTime<Utc>, _: usize) -> Result<Vec<Delivery>, PortError> {
+        fn next_deliveries(&self) -> Result<Vec<Delivery>, PortError> {
             let outbox = self.outbox.lock().unwrap();
+            let mut seen = HashSet::new();
             Ok(self
                 .queue
                 .lock()
                 .unwrap()
                 .iter()
                 .filter_map(|(id, destination, item, state)| match state {
-                    DeliveryOutcomeState::Pending { at, attempts } if *at <= now => {
+                    DeliveryOutcomeState::Pending { at, attempts } if seen.insert(*destination) => {
                         Some(Delivery {
                             id: *id,
                             destination_id: *destination,
@@ -262,11 +274,32 @@ mod tests {
                                 .clone(),
                             referenced: None,
                             attempts: *attempts,
+                            next_attempt_at: *at,
                         })
                     }
                     _ => None,
                 })
                 .collect())
+        }
+        fn start_delivery(&self, _: i64) -> Result<(), PortError> {
+            Ok(())
+        }
+        fn fail_interrupted_deliveries(&self, _: &str) -> Result<(), PortError> {
+            Ok(())
+        }
+        fn postpone_deliveries(
+            &self,
+            destinations: &[Uuid],
+            until: DateTime<Utc>,
+        ) -> Result<(), PortError> {
+            for entry in self.queue.lock().unwrap().iter_mut() {
+                if let DeliveryOutcomeState::Pending { at, .. } = &mut entry.3
+                    && destinations.contains(&entry.1)
+                {
+                    *at = (*at).max(until);
+                }
+            }
+            Ok(())
         }
         fn last_sent_at(&self, destination: Uuid) -> Result<Option<DateTime<Utc>>, PortError> {
             Ok(self
@@ -387,7 +420,7 @@ mod tests {
             DateTime::from_timestamp(1_800_000_000, 0).unwrap(),
         )));
         (
-            Deliverer::new(store.clone(), publisher.clone(), clock.clone()),
+            Deliverer::new(store.clone(), publisher.clone(), clock.clone()).unwrap(),
             store,
             publisher,
             clock,
@@ -423,12 +456,12 @@ mod tests {
         let config = config(vec![destination(100, DestinationKind::Discord)]);
         deliverer.plan(&config).unwrap();
 
-        block_on(deliverer.send_due(&config)).unwrap();
+        block_on(deliverer.send_due(&config, &|| true)).unwrap();
         advance(&clock, 5);
-        block_on(deliverer.send_due(&config)).unwrap();
+        block_on(deliverer.send_due(&config, &|| true)).unwrap();
         assert_eq!(*publisher.1.lock().unwrap(), ["d100:a"]);
         advance(&clock, 15);
-        block_on(deliverer.send_due(&config)).unwrap();
+        block_on(deliverer.send_due(&config, &|| true)).unwrap();
         assert_eq!(*publisher.1.lock().unwrap(), ["d100:a", "d100:b"]);
     }
 
@@ -443,26 +476,27 @@ mod tests {
         deliverer.plan(&config).unwrap();
 
         for wait in [30, 60, 120, 240] {
-            block_on(deliverer.send_due(&config)).unwrap();
+            block_on(deliverer.send_due(&config, &|| true)).unwrap();
             advance(&clock, wait - 1);
-            block_on(deliverer.send_due(&config)).unwrap();
+            block_on(deliverer.send_due(&config, &|| true)).unwrap();
             advance(&clock, 1);
         }
-        let reports = block_on(deliverer.send_due(&config)).unwrap();
+        let reports = block_on(deliverer.send_due(&config, &|| true)).unwrap();
         assert_eq!(publisher.1.lock().unwrap().len(), 5);
         assert!(
             matches!(&reports[0].outcome, DeliveryOutcome::Failed(e) if e.contains("gave up after 5"))
         );
 
         assert_eq!(retry_delay(10), Duration::seconds(900));
+        let now = crate::ports::Clock::now(&clock);
         let delivery = Delivery {
             id: 1,
             destination_id: Uuid::nil(),
             item: item(1, ""),
             referenced: None,
             attempts: 0,
+            next_attempt_at: now,
         };
-        let now = crate::ports::Clock::now(&clock);
         assert!(matches!(
             outcome(&delivery, Err(PublishError::TimedOut("t".into())), now),
             DeliveryOutcome::Failed(_)
@@ -482,14 +516,14 @@ mod tests {
         ]);
         deliverer.plan(&config).unwrap();
 
-        block_on(deliverer.send_due(&config)).unwrap();
+        block_on(deliverer.send_due(&config, &|| true)).unwrap();
         assert_eq!(
             *publisher.1.lock().unwrap(),
             ["d100:a", "d102:a"],
             "d101 waits with d100"
         );
         advance(&clock, 60);
-        block_on(deliverer.send_due(&config)).unwrap();
+        block_on(deliverer.send_due(&config, &|| true)).unwrap();
         assert_eq!(publisher.1.lock().unwrap().len(), 4);
         let attempts = store
             .queue
@@ -499,5 +533,35 @@ mod tests {
             .filter(|q| matches!(q.3, DeliveryOutcomeState::Done(DeliveryOutcome::Sent)))
             .count();
         assert_eq!(attempts, 3);
+    }
+
+    #[test]
+    fn a_rate_limit_holds_back_the_destinations_later_posts() {
+        let (deliverer, store, publisher, clock) = deliverer(vec![Err(PublishError::RateLimited(
+            std::time::Duration::from_secs(60),
+        ))]);
+        *store.outbox.lock().unwrap() = vec![(1, item(1, "a")), (2, item(2, "b"))];
+        let config = config(vec![destination(100, DestinationKind::Discord)]);
+        deliverer.plan(&config).unwrap();
+
+        block_on(deliverer.send_due(&config, &|| true)).unwrap();
+        advance(&clock, 30);
+        block_on(deliverer.send_due(&config, &|| true)).unwrap();
+        assert_eq!(*publisher.1.lock().unwrap(), ["d100:a"], "b waits behind a");
+        advance(&clock, 30);
+        block_on(deliverer.send_due(&config, &|| true)).unwrap();
+        assert_eq!(*publisher.1.lock().unwrap(), ["d100:a", "d100:a"]);
+    }
+
+    #[test]
+    fn stops_before_sending_when_asked() {
+        let (deliverer, store, publisher, _) = deliverer(vec![]);
+        *store.outbox.lock().unwrap() = vec![(1, item(1, "a"))];
+        let config = config(vec![destination(100, DestinationKind::Discord)]);
+        deliverer.plan(&config).unwrap();
+
+        block_on(deliverer.send_due(&config, &|| false)).unwrap();
+
+        assert!(publisher.1.lock().unwrap().is_empty());
     }
 }

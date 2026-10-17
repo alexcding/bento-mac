@@ -133,7 +133,7 @@ extension CollectorDiagnostics {
 /// One post to a destination, for the delivery history.
 public struct CollectorDelivery: Hashable, Identifiable, Sendable {
   public enum State: String, Sendable {
-    case pending, sent, failed
+    case pending, sending, sent, failed
   }
 
   public let id: Int

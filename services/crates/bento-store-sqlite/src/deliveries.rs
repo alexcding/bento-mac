@@ -59,38 +59,29 @@ impl SqliteStore {
         Ok(())
     }
 
-    fn load_due_deliveries(
-        &self,
-        now: DateTime<Utc>,
-        limit: usize,
-    ) -> Result<Vec<Delivery>, StoreError> {
+    fn load_next_deliveries(&self) -> Result<Vec<Delivery>, StoreError> {
         let connection = self.connection();
         let mut select = connection.prepare_cached(
-            "SELECT d.id, d.destination_id, d.attempts, o.payload,
+            "SELECT d.id, d.destination_id, d.attempts, d.next_attempt_at, o.payload,
                     (SELECT q.payload FROM outbox q
                      WHERE q.item_id = json_extract(o.payload, '$.reference_item_id')
                      ORDER BY q.seq LIMIT 1)
              FROM deliveries d JOIN outbox o ON o.seq = d.outbox_seq
-             WHERE d.state = 'pending' AND d.next_attempt_at <= ?1
-             ORDER BY d.id LIMIT ?2",
+             WHERE d.id IN (SELECT MIN(id) FROM deliveries WHERE state = 'pending' GROUP BY destination_id)
+             ORDER BY d.id",
         )?;
-        let rows = select.query_map(
-            params![
-                now.timestamp_millis(),
-                i64::try_from(limit).unwrap_or(i64::MAX)
-            ],
-            |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, u32>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                ))
-            },
-        )?;
+        let rows = select.query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, u32>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Option<String>>(5)?,
+            ))
+        })?;
         rows.map(|row| {
-            let (id, destination_id, attempts, payload, referenced) = row?;
+            let (id, destination_id, attempts, next_attempt_at, payload, referenced) = row?;
             Ok(Delivery {
                 id,
                 destination_id: Uuid::parse_str(&destination_id).unwrap_or_default(),
@@ -99,9 +90,16 @@ impl SqliteStore {
                     .map(|json| serde_json::from_str(&json))
                     .transpose()?,
                 attempts,
+                next_attempt_at: DateTime::from_timestamp_millis(next_attempt_at)
+                    .unwrap_or_default(),
             })
         })
         .collect()
+    }
+
+    fn execute(&self, sql: &str, params: impl rusqlite::Params) -> Result<(), StoreError> {
+        self.connection().prepare_cached(sql)?.execute(params)?;
+        Ok(())
     }
 
     fn load_last_sent_at(&self, destination_id: Uuid) -> Result<Option<DateTime<Utc>>, StoreError> {
@@ -129,7 +127,8 @@ impl SqliteStore {
                 .execute(params![id, now.timestamp_millis()])?,
             DeliveryOutcome::Retry { at, error, failed_attempt } => connection
                 .prepare_cached(
-                    "UPDATE deliveries SET next_attempt_at = ?2, last_error = ?3, attempts = attempts + ?4
+                    "UPDATE deliveries SET state = 'pending', next_attempt_at = ?2, last_error = ?3,
+                       attempts = attempts + ?4
                      WHERE id = ?1",
                 )?
                 .execute(params![id, at.timestamp_millis(), error, i64::from(*failed_attempt)])?,
@@ -143,8 +142,8 @@ impl SqliteStore {
         if !matches!(outcome, DeliveryOutcome::Retry { .. }) {
             connection
                 .prepare_cached(
-                    "DELETE FROM deliveries WHERE state != 'pending' AND id NOT IN
-                       (SELECT id FROM deliveries WHERE state != 'pending' ORDER BY id DESC LIMIT ?1)",
+                    "DELETE FROM deliveries WHERE state IN ('sent', 'failed') AND id NOT IN
+                       (SELECT id FROM deliveries WHERE state IN ('sent', 'failed') ORDER BY id DESC LIMIT ?1)",
                 )?
                 .execute([FINISHED_LIMIT])?;
         }
@@ -168,8 +167,41 @@ impl DeliveryStore for SqliteStore {
             .map_err(PortError::new)
     }
 
-    fn due_deliveries(&self, now: DateTime<Utc>, limit: usize) -> Result<Vec<Delivery>, PortError> {
-        self.load_due_deliveries(now, limit).map_err(PortError::new)
+    fn next_deliveries(&self) -> Result<Vec<Delivery>, PortError> {
+        self.load_next_deliveries().map_err(PortError::new)
+    }
+
+    fn start_delivery(&self, id: i64) -> Result<(), PortError> {
+        self.execute(
+            "UPDATE deliveries SET state = 'sending' WHERE id = ?1",
+            [id],
+        )
+        .map_err(PortError::new)
+    }
+
+    fn fail_interrupted_deliveries(&self, error: &str) -> Result<(), PortError> {
+        self.execute(
+            "UPDATE deliveries SET state = 'failed', last_error = ?1, attempts = attempts + 1
+             WHERE state = 'sending'",
+            [error],
+        )
+        .map_err(PortError::new)
+    }
+
+    fn postpone_deliveries(
+        &self,
+        destination_ids: &[Uuid],
+        until: DateTime<Utc>,
+    ) -> Result<(), PortError> {
+        for id in destination_ids {
+            self.execute(
+                "UPDATE deliveries SET next_attempt_at = MAX(next_attempt_at, ?2)
+                 WHERE state = 'pending' AND destination_id = ?1",
+                params![id.to_string(), until.timestamp_millis()],
+            )
+            .map_err(PortError::new)?;
+        }
+        Ok(())
     }
 
     fn last_sent_at(&self, destination_id: Uuid) -> Result<Option<DateTime<Utc>>, PortError> {
@@ -236,7 +268,7 @@ mod tests {
         store.queue_deliveries(rows[1].0, &queued, now).unwrap();
         assert!(store.undelivered_outbox(10).unwrap().is_empty());
 
-        let due = store.due_deliveries(now, 10).unwrap();
+        let due = store.next_deliveries().unwrap();
         assert_eq!(due.len(), 1, "queued once");
         assert_eq!(
             due[0].referenced.as_ref().map(|i| i.id),
@@ -249,20 +281,72 @@ mod tests {
             error: "502".into(),
             failed_attempt: true,
         };
+        store.start_delivery(due[0].id).unwrap();
         store.finish_delivery(due[0].id, &retry, now).unwrap();
-        assert!(store.due_deliveries(now, 10).unwrap().is_empty());
-        assert_eq!(store.due_deliveries(later, 10).unwrap()[0].attempts, 1);
+        let waiting = store.next_deliveries().unwrap();
+        assert_eq!(
+            (
+                waiting[0].attempts,
+                waiting[0].next_attempt_at.timestamp_millis()
+            ),
+            (1, later.timestamp_millis())
+        );
 
         store
             .finish_delivery(due[0].id, &DeliveryOutcome::Sent, later)
             .unwrap();
-        assert!(store.due_deliveries(later, 10).unwrap().is_empty());
+        assert!(store.next_deliveries().unwrap().is_empty());
         assert_eq!(
             store
                 .last_sent_at(destination)
                 .unwrap()
                 .map(|at| at.timestamp_millis()),
             Some(later.timestamp_millis())
+        );
+    }
+
+    #[test]
+    fn heads_per_destination_postponing_and_interrupted_sends() {
+        let store = SqliteStore::open_in_memory().unwrap();
+        let items = [entry("a", None), entry("b", None)];
+        store.append_new(&items).unwrap();
+        let rows = store.undelivered_outbox(10).unwrap();
+        let (first, second) = (Uuid::from_u128(1), Uuid::from_u128(2));
+        let now = Utc::now();
+        let queued = [
+            (first, items[0].item.id, rows[0].0),
+            (first, items[1].item.id, rows[1].0),
+            (second, items[1].item.id, rows[1].0),
+        ];
+        store.queue_deliveries(rows[1].0, &queued, now).unwrap();
+
+        let heads = store.next_deliveries().unwrap();
+        assert_eq!(
+            heads
+                .iter()
+                .map(|d| (d.destination_id, d.item.id))
+                .collect::<Vec<_>>(),
+            [(first, items[0].item.id), (second, items[1].item.id)]
+        );
+
+        let until = now + chrono::Duration::seconds(60);
+        store.postpone_deliveries(&[second], until).unwrap();
+        let heads = store.next_deliveries().unwrap();
+        assert_eq!(
+            heads[1].next_attempt_at.timestamp_millis(),
+            until.timestamp_millis()
+        );
+        assert!(
+            heads[0].next_attempt_at < until,
+            "other destinations are untouched"
+        );
+
+        store.start_delivery(heads[0].id).unwrap();
+        store.fail_interrupted_deliveries("interrupted").unwrap();
+        let heads = store.next_deliveries().unwrap();
+        assert_eq!(
+            heads[0].item.id, items[1].item.id,
+            "the interrupted post is never sent again"
         );
     }
 }

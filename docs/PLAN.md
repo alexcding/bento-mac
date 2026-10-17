@@ -15,7 +15,8 @@ results through iCloud. An iOS reader follows later. Notes are out of scope for 
 | Sync scope | One iCloud account, private database. No sharing for now. |
 | AI | One reusable AI service; every task is a config (provider, model, prompt, output schema). Providers: CLI (Codex, Claude, any) and OpenAI-compatible HTTP (DeepSeek and others). |
 | Sources | Plugins. Everything the previous service supported: RSS (built-in), X, Reddit, YouTube, Bilibili, Telegram, Xiaohongshu. |
-| Publishers | Built into the daemon behind the plugin interface: Discord webhook, Telegram bot, Telegram account (`grammers`), X posting. |
+| Publishers | Discord webhook and Telegram bot built into the daemon; posting as the user through plugins: Telegram account (`grammers`, protocol plugin) and X (`twitter-cli`, CLI plugin). |
+| Collector | One Mac collects and publishes (`AppSettings.collectorDeviceID`, synced); every other device only reads. |
 | Retention | Feed items: forever (configurable). Article detail: 30 days, bookmarked items forever. Mac archive: forever, never synced. |
 | Out of scope | Rates, IPTV, GitHub runner, DB browser. Notes come later, with a third-party native rich-text editor. |
 
@@ -45,7 +46,18 @@ results through iCloud. An iOS reader follows later. Notes are out of scope for 
   run history, performance and logs (Collector window). Quitting the app does not stop the daemon.
 - **Shared vs Mac only:** `BentoData` and `BentoUI` build for macOS and iOS. `BentoCollectorClient`
   and the app target's collector service are Mac only; the iOS app never links them.
-- Secrets (cookies, Telegram session, webhook URLs, bot token) live in the Keychain.
+- **One collector Mac.** The synced settings name the Mac that collects and publishes. The first
+  Mac to launch claims the role once iCloud has caught up; any other Mac stops its agent and writes
+  a config with nothing enabled. "Collect on This Mac" first marks every item already in the library
+  as seen in that Mac's daemon (`bento-collector seen import`), so nothing is processed or posted
+  twice, then takes the role.
+- **Publishing.** A delivery task in the daemon, separate from collecting, queues a `deliveries`
+  row per destination for each new outbox row (its own cursor), then sends each destination's
+  oldest post when due and spaced by its post delay: 429 and flood waits are respected (a Telegram
+  flood wait pauses every destination on the same bot or account, persisted), failures retry five
+  times from 30 s to 15 min, a rejected photo falls back to text, and a post that may have gone out
+  (timeout, connection lost mid-send, process killed mid-send) is never sent again.
+- Secrets (cookies, Telegram session, webhook URLs, bot token) live in the collector Mac's Keychain.
 
 ### SwiftUI layering (same as cascade-mac)
 
@@ -260,13 +272,27 @@ with sync off.
 | 2 | Plugin host + test kit; X, Reddit, YouTube, Bilibili, Telegram, Xiaohongshu; detail extraction; AI service with CLI and HTTP providers and configurable steps; run options; Mac settings screens | Every source runs unattended for a week with no duplicates or crashes |
 | 3 | Discord, Telegram bot, Telegram account (`grammers`: sending and private channels), X posting | A week with no duplicate or missed sends |
 
+| Later | iOS reader, read-only local JSON API, notes | — |
+
 Phase 2 ships in slices, each reviewed twice: **2a** plugin host, manifest and mapping, CLI plugins (X,
 Reddit, YouTube, Xiaohongshu), dependency checks, Keychain secrets; **2b** AI service and article text
-extraction; **2c** protocol plugins (Bilibili with QR login, Telegram public channels; Telegram account login and private channels come with phase 3's `grammers` work); **2d** run options and the
-Mac settings screens (plugins, AI profiles and tasks, logins, dependencies).
-| Later | iOS reader, read-only local JSON API, notes | — |
+extraction; **2c** protocol plugins (Bilibili with QR login, Telegram public channels); **2d** run
+options and the Mac settings screens (plugins, AI profiles and tasks, logins, dependencies).
+
+Phase 3, also reviewed twice per slice: **3a** the single collector Mac and its handover; **3b**
+delivery queue, Discord webhooks and Telegram bots, destinations in channel settings, Posts tab;
+**3c** Telegram as the user's account (login, private channels, posting); **3d** X posting through
+the X plugin's `publish` command.
 
 ## Open items
 
 - Measure real volume in phase 2 (current estimate: ~500 items/day → ~270 MB/year of slim items).
+- Not yet run against live accounts: Telegram account login, private channels and posting; X
+  posting through `twitter-cli` (not installed on the development Mac). Both need real credentials.
+- Secrets stay on the Mac where they were entered: after "Collect on This Mac", plugin sign-ins and
+  destination secrets are entered again on the new collector.
+- A collector Mac whose app is closed keeps collecting until its app next runs and sees another Mac
+  took over; item IDs dedupe the feed, but both can post during that window.
+- The Telegram plugin keeps no peer cache between runs, so each post to `@name` resolves it and each
+  private-channel run pages through dialogs; watch for flood waits on busy destinations.
 - Confirm CloudKit works for the Developer ID build in phase 0.

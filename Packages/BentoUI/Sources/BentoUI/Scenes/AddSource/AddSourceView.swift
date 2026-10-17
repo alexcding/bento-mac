@@ -120,6 +120,7 @@ private struct SetupForm: View {
           }
           HStack {
             Button("Check Again") { Task { await model.checkAgain() } }
+              .disabled(model.isWorking)
             if model.isWorking { ProgressView().controlSize(.small) }
           }
         } header: {

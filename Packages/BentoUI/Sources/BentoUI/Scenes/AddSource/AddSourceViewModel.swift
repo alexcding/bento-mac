@@ -96,9 +96,8 @@ public final class AddSourceViewModel: Identifiable {
   func refreshSignIns() async {
     guard let collector, checksSetup else { return }
     for plugin in plugins where Self.needsAuth(plugin) {
-      if let status = try? await collector.secretStatus(pluginID: plugin.id) {
-        secretStatus[plugin.id] = status
-      }
+      // A failed read counts as nothing set, so the row stops showing it is checking.
+      secretStatus[plugin.id] = (try? await collector.secretStatus(pluginID: plugin.id)) ?? [:]
     }
   }
 
@@ -140,7 +139,7 @@ public final class AddSourceViewModel: Identifiable {
     await continueIfReady()
     let status = secretStatus[plugin.id] ?? [:]
     let missing = plugin.secretFields.filter { status[$0.key] != true }.map(\.label)
-    if case .setup = step, !missing.isEmpty {
+    if step == .setup(pluginID: plugin.id), !missing.isEmpty {
       message = "Still missing: \(missing.formatted())."
     }
   }

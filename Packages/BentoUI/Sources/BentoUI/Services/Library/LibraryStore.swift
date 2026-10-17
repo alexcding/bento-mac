@@ -38,7 +38,7 @@ public struct NativeLibraryStore: LibraryStoring {
 
   public func addFeed(channelID: Channel.ID, url: URL) throws {
     try database.write { db in
-      try Mutations.addSource(
+      _ = try Mutations.addSource(
         db, channelID: channelID, pluginID: "rss", name: url.host() ?? url.absoluteString, query: url.absoluteString
       )
     }

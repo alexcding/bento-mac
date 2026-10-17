@@ -22,6 +22,9 @@ targets:
           - LaunchAgents
     dependencies:
       - package: BentoData
+        product: BentoData
+      - package: BentoData
+        product: BentoCollectorClient
       - package: BentoUI
     info:
       path: Bento/Info.plist

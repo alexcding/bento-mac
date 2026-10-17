@@ -22,24 +22,44 @@ results through iCloud. An iOS reader follows later. Notes are out of scope for 
 ## Architecture
 
 ```
-               ┌──────────────── Bento.app (Swift, macOS) ────────────────┐
- sources ──►  bento-collector (Rust, LaunchAgent)       BentoUI (SwiftUI)  │
- (plugins)     collector.sqlite: tasks, runs,            BentoData         │
-               outbox, deliveries, logs     ── socket ─► (sqlite-data)     │
-                 │                                        bento.sqlite ◄──►│── iCloud ──► iOS (later)
-                 └──► Discord / Telegram                  archive.sqlite   │
-               └───────────────────────────────────────────────────────────┘
+ sources ──► bento-collector (Rust LaunchAgent, runs after Quit)
+              collector.sqlite: outbox, seen_items, source_state, run_log
+              collector.log                       ▲ collector-config.json
+                │ outbox                          │ (written by the app)
+                ▼                                 │
+ Bento.app (macOS) ── CollectorService ───────────┘   start / stop / restart, sync every 5 s
+   BentoCollectorClient (Mac only)
+   BentoUI + BentoData ── bento.sqlite ◄── iCloud ──► BentoUI + BentoData (iOS, later)
 ```
 
-- **Only the Swift app writes `bento.sqlite`.** sqlite-data's sync triggers live on the app's
-  connection, so writes from another process would not sync.
-- Rust writes processed items to an `outbox` table with a sequence number. The app reads past its
-  cursor, upserts into `bento.sqlite` and `archive.sqlite`, and acks. Upserts are idempotent
-  because item IDs are deterministic.
-- Config (channels, sources, destinations) is edited in the app, stored in `bento.sqlite`, and
-  pushed to the daemon, which caches it so collection continues while the app is closed.
-- Control API (run, dry run, status, live logs) over a Unix socket.
+- **Two processes, one writer per database.** The daemon owns `collector.sqlite`; only the app
+  writes `bento.sqlite`, because sqlite-data's sync triggers live on the app's connection.
+- **Daemon → app:** processed items go to the `outbox` with a growing `seq`. The app saves rows
+  past its cursor (kept per collector database instance) and is idempotent because item IDs are
+  deterministic. The daemon skips items already sent (`seen_items`) before any processing.
+- **App → daemon:** the app writes `collector-config.json` from the synced channels and sources
+  whenever they change; the daemon reloads it when its modification time changes and keeps the
+  last good config, so collection continues while the app is closed.
+- **Control:** the app registers the LaunchAgent with `SMAppService`, restarts it with
+  `launchctl kickstart -k`, and reads `source_state`, `run_log` and `collector.log` for status,
+  run history, performance and logs (Collector window). Quitting the app does not stop the daemon.
+- **Shared vs Mac only:** `BentoData` and `BentoUI` build for macOS and iOS. `BentoCollectorClient`
+  and the app target's collector service are Mac only; the iOS app never links them.
 - Secrets (cookies, Telegram session, webhook URLs, bot token) live in the Keychain.
+
+### SwiftUI layering (same as cascade-mac)
+
+Each layer depends only on the ones below it.
+
+| Layer | Folder | Rule |
+|---|---|---|
+| Coordinators | `Coordinators/` | Presentation and view model lifetime. `AppCoordinator` handles every `Action`. |
+| Container | `Container/` | One `*FeatureFactory` protocol per feature with a `Native*` implementation. Tests substitute these. |
+| Scenes | `Scenes/<Area>/` | `<Area>View` + `<Area>ViewModel`. View models are `@MainActor @Observable`, own their sqlite-data queries, and report through an `Action` enum and `onAction`. They never reach for a coordinator. |
+| Components | `Components/` | Reusable views with no screen of their own (feed card). |
+| Services | `Services/` | Protocols with `Native*` implementations (`LibraryStoring`, `SourceStatusProviding`). |
+
+Reads are sqlite-data queries in view models; writes go through `LibraryStoring` so tests use a fake.
 
 ## Item model
 
@@ -101,17 +121,23 @@ or defaulted), last-edit-wins per column, every `BLOB` column syncs as a `CKAsse
   authorHandle, authorAvatarURL, media (JSON `[Media]`), referenceItemID, publishedAt,
   isPublishedAtEstimated, language, fetchedAt.
 - `FeedItemDetail`: feedItemID (primary key), markdown (`BLOB`, deflate with a 1-byte format header).
-- `Bookmark`: feedItemID, createdAt.
-- `ReadState`: feedItemID, readAt.
+- `Bookmark`: a full copy of the item (same ID, no foreign key), so bookmarks survive the item
+  being purged or its source deleted; `createdAt`.
+- `BookmarkDetail`: bookmarkID (primary key), markdown copied from the item's detail.
+- `ReadState`: feedItemID, readAt. Same database, so unread counts and filters are plain joins.
 
-Local only: `archive.sqlite` (every item and detail forever, plain-text FTS index) on the Mac;
-`collector.sqlite` (tasks, schedules, outbox, deliveries, logs) owned by Rust.
+Local only: `outboxCursors` in `bento.sqlite` (Mac); `collector.sqlite` (outbox, seen items,
+source state, run log) owned by Rust; `archive.sqlite` (every item forever, FTS) arrives with
+retention purging.
 
 ### App layout
 
-Slack/Discord style: a sidebar of channels (each row shows the channel name, source count and
-Enabled/Paused, with a "New channel" row at the end), and the selected channel's feed of cards in
-the main area. Selecting a card opens its detail.
+Slack/Discord style, three columns. Sidebar: All items and Bookmarks (with counts) and channels
+(name, source count, Enabled/Paused, unread badge; context menu Settings / Pause / Delete; "New
+channel" row). Feed: cards grouped by day, search, Unread only, Mark all as read, per-item Mark as
+read/unread, Bookmark, Share; keys j/k move, s bookmark, m read/unread, o open original. Detail: full
+text, media, quoted item, article Markdown; opening marks read. Mac only: menu bar (collector status
+and controls) and the Collector window (sources with performance, run history, live log).
 
 ### Card
 
@@ -164,7 +190,8 @@ destinations, rejected photo falls back to text, a timed-out send is never retri
 
 ```
 Apps/        Bento.xcodeproj (macOS; iOS later), Local.xcconfig.template
-Packages/    BentoData, BentoUI
+             Bento/App, Bento/Scenes (Collector, MenuBar), Bento/Services/Collector
+Packages/    BentoData (+ BentoCollectorClient, Mac only), BentoUI
 services/    Cargo workspace (below)
 plugins/     one folder per plugin
 docs/        PLAN.md
@@ -175,10 +202,11 @@ The Rust workspace is ports and adapters:
 | Crate | Layer | Depends on | Tested with |
 |---|---|---|---|
 | `bento-domain` | item model, stable IDs, detail codec; no I/O | — | unit tests |
-| `bento-app` | use cases and the ports they need (outbox, clock, sources, AI, publishers) | domain | in-memory fakes |
+| `bento-app` | use cases (ingest, scheduler) and the ports they need (outbox, clock, source fetchers, source state and run log) | domain | in-memory fakes |
 | `bento-store-sqlite` | `collector.sqlite` adapter | app, domain | temporary databases |
-| `bento-source-*`, `bento-plugin-host`, `bento-ai-cli`, `bento-publish-*` | adapters (phase 1+) | app, domain | fixtures, fake processes |
-| `bento-collector` | binary: composition root, CLI, logging, runtime | all | smoke runs |
+| `bento-source-rss` | built-in RSS/Atom fetcher | app, domain | fixtures, mock HTTP server |
+| `bento-plugin-host`, `bento-ai-cli`, `bento-publish-*` | adapters (phase 2+) | app, domain | fixtures, fake processes |
+| `bento-collector` | binary: composition root, config reload, logging, runtime | all | unit tests, smoke runs |
 
 `services/testdata/vectors.json` holds ID and codec vectors that both the Rust and Swift tests check.
 

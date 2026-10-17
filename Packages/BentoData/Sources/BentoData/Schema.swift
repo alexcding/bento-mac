@@ -114,3 +114,11 @@ nonisolated struct OutboxCursor: Hashable, Sendable {
   let instanceID: String
   var seq: Int
 }
+
+// Memberwise initializers are internal; these are the ones other modules need.
+
+extension Channel.Draft {
+  public init(name: String, position: Int) {
+    self.init(id: nil, name: name, isEnabled: true, maxItems: 10, position: position)
+  }
+}

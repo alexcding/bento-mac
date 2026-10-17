@@ -118,3 +118,34 @@ import Testing
     #expect(try counts().items == 3)
   }
 }
+
+/// Runs the real `bento-collector` binary, so Rust's actual output is what Swift ingests.
+/// Build it first: `cargo build -p bento-collector` in `services/`.
+@Suite struct CollectorIntegrationTests {
+  static let binary = testdata.appending(path: "../target/debug/bento-collector").standardized
+
+  @Test(.enabled(if: FileManager.default.isExecutableFile(atPath: binary.path)))
+  func ingestsRealCollectorOutput() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let process = Process()
+    process.executableURL = Self.binary
+    process.arguments = ["--data-dir", directory.path, "emit-test-item", "--title", "集成测试"]
+    process.standardError = FileHandle.nullDevice
+    try process.run()
+    process.waitUntilExit()
+    #expect(process.terminationStatus == 0)
+
+    let database = try BentoDatabase.open(at: directory.appending(path: "bento.sqlite"), iCloudContainer: nil)
+    let saved = try OutboxIngestor(collectorURL: directory.appending(path: "collector.sqlite"), database: database)
+      .ingestPending()
+
+    #expect(saved == 1)
+    let item = try #require(try database.read { try FeedItem.all.fetchOne($0) })
+    #expect(item.title == "集成测试")
+    #expect(item.id == StableID.feedItem(sourceID: item.sourceID, externalID: item.externalID))
+    #expect(item.isPublishedAtEstimated)
+    let detail = try #require(try database.read { try FeedItemDetail.all.fetchOne($0) })
+    #expect(try DetailCodec.decode(detail.markdown).hasPrefix("# Test item"))
+  }
+}

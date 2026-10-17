@@ -1,0 +1,38 @@
+# Generate Bento.xcodeproj with `xcodegen` (brew install xcodegen) from this directory.
+name: Bento
+options:
+  createIntermediateGroups: true
+  deploymentTarget:
+    macOS: "15.0"
+configFiles:
+  Debug: Config/Bento.xcconfig
+  Release: Config/Bento.xcconfig
+packages:
+  BentoData:
+    path: ../Packages/BentoData
+  BentoUI:
+    path: ../Packages/BentoUI
+targets:
+  Bento:
+    type: application
+    platform: macOS
+    sources:
+      - path: Bento
+        excludes:
+          - LaunchAgents
+    dependencies:
+      - package: BentoData
+      - package: BentoUI
+    info:
+      path: Bento/Info.plist
+      properties:
+        CFBundleDisplayName: Bento
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        LSApplicationCategoryType: public.app-category.news
+        BentoICloudContainer: $(BENTO_ICLOUD_CONTAINER)
+    postCompileScripts:
+      - name: Embed bento-collector
+        basedOnDependencyAnalysis: false
+        script: |
+          exec "${SRCROOT}/Scripts/embed-collector.sh"

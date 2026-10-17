@@ -29,6 +29,11 @@ public protocol CollectorControlling: AnyObject {
   func preview(sourceID: Source.ID) async throws -> PreviewResult
 }
 
+extension Notification.Name {
+  /// Posted when a plugin's sign-in or secrets change, so screens listing sources refresh.
+  public static let bentoSignInsChanged = Notification.Name("BentoSignInsChanged")
+}
+
 /// One login in progress.
 @MainActor
 public protocol LoginSession: AnyObject {

@@ -333,6 +333,10 @@ struct DestinationSettingsTests {
 
     #expect(model.availablePlugins.map(\.id) == ["youtube"], "X still misses ct0")
     #expect(model.pluginsNeedingSetup.map(\.id) == ["x"])
+
+    collector.isThisMacCollector = false
+    #expect(model.availablePlugins.map(\.id) == ["x", "youtube"], "another Mac cannot tell what the collector has")
+    #expect(model.pluginsNeedingSetup.isEmpty)
   }
 
   @Test func onlyTheCollectorMacSetsUpDestinations() async {

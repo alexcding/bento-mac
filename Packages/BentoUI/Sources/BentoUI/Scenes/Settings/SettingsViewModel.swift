@@ -62,8 +62,10 @@ public final class SettingsViewModel {
 
   func refreshSecrets(for plugin: PluginInfo) async {
     guard let collector, !plugin.secretFields.isEmpty || plugin.hasInteractiveLogin else { return }
-    if let status = try? await collector.secretStatus(pluginID: plugin.id) {
+    if let status = try? await collector.secretStatus(pluginID: plugin.id), status != secretStatus[plugin.id] {
+      let known = secretStatus[plugin.id] != nil
       secretStatus[plugin.id] = status
+      if known { NotificationCenter.default.post(name: .bentoSignInsChanged, object: nil) }
     }
   }
 

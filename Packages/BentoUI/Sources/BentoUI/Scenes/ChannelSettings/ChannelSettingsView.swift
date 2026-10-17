@@ -41,6 +41,10 @@ struct ChannelSettingsView: View {
     }
     .frame(minWidth: 520, minHeight: 440)
     .task { await model.load() }
+    .onChange(of: model.pluginIDs) { Task { await model.refreshSignIns() } }
+    .onReceive(NotificationCenter.default.publisher(for: .bentoSignInsChanged)) { _ in
+      Task { await model.refreshSignIns() }
+    }
     .sheet(item: $model.sourceEditor) { editor in
       SourceEditorView(model: editor)
     }

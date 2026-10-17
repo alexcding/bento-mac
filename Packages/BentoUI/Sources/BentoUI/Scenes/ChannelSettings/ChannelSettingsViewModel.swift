@@ -78,17 +78,27 @@ public final class ChannelSettingsViewModel: Identifiable {
     }
   }
 
-  /// Source types that can be added: plugins that are ready (programs installed, sign-in set if
-  /// needed), or RSS without a collector.
+  /// Source types that can be added, or RSS without a collector. On the collector Mac, which does
+  /// the fetching, only plugins that are ready (programs installed, sign-in set if needed); another
+  /// Mac cannot tell what the collector has, so it lists every source plugin.
   var availablePlugins: [PluginInfo] {
-    let ready = collector?.plugins.filter { $0.isReady(secretStatus: secretStatus[$0.id]) } ?? []
-    return ready.isEmpty ? [.rss] : ready
+    let loaded = collector?.plugins.filter { $0.isSource && $0.loadError == nil } ?? []
+    let offered = filtersByReadiness ? loaded.filter { $0.isReady(secretStatus: secretStatus[$0.id]) } : loaded
+    return offered.isEmpty ? [.rss] : offered
   }
 
-  /// Source plugins left out because they still need setting up.
+  /// Source plugins left out because they still need setting up on this, the collector, Mac.
   var pluginsNeedingSetup: [PluginInfo] {
-    (collector?.plugins ?? []).filter { $0.isSource && $0.loadError == nil && !$0.isReady(secretStatus: secretStatus[$0.id]) }
+    guard filtersByReadiness else { return [] }
+    return (collector?.plugins ?? []).filter {
+      $0.isSource && $0.loadError == nil && !$0.isReady(secretStatus: secretStatus[$0.id])
+    }
   }
+
+  private var filtersByReadiness: Bool { collector?.isThisMacCollector ?? false }
+
+  /// The loaded plugins, to refresh sign-in status when the collector's catalog arrives.
+  var pluginIDs: [String] { collector?.plugins.map(\.id) ?? [] }
 
   var newSourcePlugin: PluginInfo? {
     availablePlugins.first { $0.id == newSourcePluginID } ?? availablePlugins.first

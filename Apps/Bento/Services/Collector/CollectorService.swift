@@ -57,16 +57,17 @@ final class CollectorService: SourceStatusProviding {
     statuses[sourceID]
   }
 
-  /// Writes the config, saves pending outbox rows and refreshes status. Runs never overlap: a call
-  /// made while one is in flight waits for it, then runs again.
+  /// Writes the config, saves pending outbox rows and refreshes status. Runs never overlap: each
+  /// call queues one run after the one in flight, so rows written meanwhile are picked up.
   func sync() async {
-    while let syncTask {
-      await syncTask.value
+    let previous = syncTask
+    let task = Task {
+      await previous?.value
+      await performSync()
     }
-    let task = Task { await performSync() }
     syncTask = task
     await task.value
-    syncTask = nil
+    if syncTask == task { syncTask = nil }
   }
 
   private func performSync() async {

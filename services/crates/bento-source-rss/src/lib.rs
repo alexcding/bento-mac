@@ -86,7 +86,7 @@ fn raw_item(feed: &Feed, entry: &Entry) -> RawItem {
                 .as_ref()
                 .and_then(|content| content.body.as_deref())
         })
-        .map(|html| html::truncate_chars(&html::to_text(html), MAX_TEXT_CHARS))
+        .map(|html| html::truncate_chars(&html::body_to_text(html), MAX_TEXT_CHARS))
         .unwrap_or_default();
     let author_name = entry
         .authors
@@ -95,7 +95,7 @@ fn raw_item(feed: &Feed, entry: &Entry) -> RawItem {
         .or_else(|| {
             feed.title
                 .as_ref()
-                .map(|title| html::to_text(&title.content))
+                .map(|title| html::title_to_text(&title.content))
         });
     RawItem {
         external_id: if entry.id.is_empty() {
@@ -107,7 +107,7 @@ fn raw_item(feed: &Feed, entry: &Entry) -> RawItem {
         title: entry
             .title
             .as_ref()
-            .map(|title| html::to_text(&title.content)),
+            .map(|title| html::title_to_text(&title.content)),
         text,
         author: Some(Author {
             name: author_name,

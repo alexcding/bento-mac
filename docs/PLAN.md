@@ -112,11 +112,15 @@ new source, skip weekends.
 
 ### AI service
 
-One service (`bento-ai` crate in the daemon) behind one port: prompt + output schema → JSON. Every
-use is a task config, not code:
+One service (`bento-ai` crate in the daemon) behind one port: prompt + output schema → JSON.
+
+**AI profiles** are saved, named connections (for example "DeepSeek API", "Claude CLI", "Codex
+CLI"): provider kind, model, endpoint or command, timeout, and a Keychain key. **Tasks** reference a
+profile plus an ordered fallback list, so each task can use a different service (translate on
+DeepSeek, summarize on Claude). Every use is a task config, not code:
 
 ```jsonc
-{ "id": "translate-zh", "name": "Translate to Chinese", "provider": "deepseek", "model": "deepseek-chat",
+{ "id": "translate-zh", "name": "Translate to Chinese", "profile": "deepseek-api", "fallback": ["codex-cli"],
   "prompt": "Translate to Simplified Chinese…\n{{title}}\n{{text}}",
   "outputs": { "title": "translatedTitle", "text": "detailMarkdown" }, "max_input_chars": 6500 }
 ```

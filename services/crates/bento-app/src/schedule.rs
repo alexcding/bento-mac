@@ -88,14 +88,20 @@ impl<S: SourceStateStore, O: Outbox, C: Clock> Scheduler<S, O, C> {
     }
 }
 
-/// Due at `next_run_at`, or sooner when the interval was shortened since the last successful run
-/// (failure backoff is kept as scheduled).
+/// Due at `next_run_at`, or sooner when the interval was shortened since the last run: the wait
+/// is recomputed from the last run with the current interval (and backoff, after failures).
 fn is_due(state: &SourceState, source: &SourceConfig, now: DateTime<Utc>) -> bool {
-    state.next_run_at <= now
-        || (state.consecutive_failures == 0
-            && state
-                .last_run_at
-                .is_some_and(|last| last + interval(source) <= now))
+    let wait = if state.consecutive_failures == 0 {
+        interval(source)
+    } else {
+        backoff(state.consecutive_failures).min(interval(source))
+    };
+    state.next_run_at <= now || state.last_run_at.is_some_and(|last| last + wait <= now)
+}
+
+/// Retry delay after `failures` consecutive failures: 1, 2, 4, … minutes.
+fn backoff(failures: u32) -> Duration {
+    FIRST_RETRY * 2_i32.saturating_pow(failures.saturating_sub(1).min(16))
 }
 
 fn interval(source: &SourceConfig) -> Duration {
@@ -141,11 +147,10 @@ fn next_state(
         },
         Err(error) => {
             let failures = previous.as_ref().map_or(0, |s| s.consecutive_failures) + 1;
-            let backoff = FIRST_RETRY * 2_i32.saturating_pow(failures.saturating_sub(1).min(16));
             SourceState {
                 source_id: source.id,
                 last_run_at: Some(now),
-                next_run_at: now + backoff.min(interval),
+                next_run_at: now + backoff(failures).min(interval),
                 consecutive_failures: failures,
                 last_error: Some(error.to_string()),
                 last_new_items: previous.map_or(0, |s| s.last_new_items),
@@ -295,6 +300,30 @@ mod tests {
         block_on(scheduler.run_due(&config(vec![slow]))).unwrap();
 
         assert_eq!(fetcher.calls(), 2);
+    }
+
+    #[test]
+    fn shortened_interval_also_cuts_a_long_failure_backoff() {
+        let fetcher = FakeFetcher::new(vec![Err("offline".into()); 12]);
+        let (states, outbox, clock) = (
+            FakeStates::default(),
+            FakeOutbox::default(),
+            FixedClock::at(9),
+        );
+        let scheduler = Scheduler::new(registry(fetcher.clone()), &states, &outbox, &clock);
+        let mut slow = source(1, "rss", true);
+        slow.interval_minutes = 360;
+        for _ in 0..10 {
+            block_on(scheduler.run_due(&config(vec![slow.clone()]))).unwrap();
+            *clock.0.borrow_mut() = states.source_state(slow.id).unwrap().unwrap().next_run_at;
+        }
+        let calls = fetcher.calls();
+
+        *clock.0.borrow_mut() += Duration::minutes(10) - Duration::minutes(360);
+        slow.interval_minutes = 10;
+        block_on(scheduler.run_due(&config(vec![slow]))).unwrap();
+
+        assert_eq!(fetcher.calls(), calls + 1);
     }
 
     #[test]

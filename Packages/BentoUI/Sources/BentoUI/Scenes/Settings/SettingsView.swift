@@ -96,7 +96,7 @@ private struct PluginsSettingsView: View {
       if let collector = model.collector {
         Text(
           collector.secretsSynced
-            ? "Sign-ins are kept in iCloud Keychain, so any of your Macs can collect without signing in again."
+            ? "Sign in on the collector Mac. Sign-ins are saved to iCloud Keychain, so with iCloud Keychain turned on, another Mac can take over collecting without signing in again."
             : "Sign-ins are kept in this Mac's Keychain only. A Mac that takes over collecting needs them entered again."
         )
         .font(.caption)

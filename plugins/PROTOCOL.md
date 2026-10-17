@@ -15,7 +15,7 @@ plugin with `mapping.json` needs no code.
 ```
 
 The executable is looked up in the plugin's `bin/`, next to `bento-collector` (bundled plugins live in
-`Bento.app/Contents/MacOS`), then on `PATH`.
+`Bento.app/Contents/Helpers/BentoCollector.app/Contents/MacOS`), then on `PATH`.
 
 ## Methods
 

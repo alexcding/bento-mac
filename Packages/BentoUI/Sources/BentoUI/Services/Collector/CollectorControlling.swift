@@ -10,8 +10,9 @@ public protocol CollectorControlling: AnyObject {
   /// Whether this Mac is the one collector. Other Macs only read what it collects; the synced
   /// `AppSettings.collectorDeviceName` says which Mac that is.
   var isThisMacCollector: Bool { get }
-  /// Whether sign-ins and destination secrets are in iCloud Keychain, shared with the user's
-  /// other Macs (a build signed with a developer team). Otherwise they stay on this Mac.
+  /// Whether sign-ins and destination secrets are saved to iCloud Keychain (a build signed with a
+  /// developer team), reaching the user's other Macs when iCloud Keychain is on. Otherwise they
+  /// stay on this Mac.
   var secretsSynced: Bool { get }
   /// Moves collecting and publishing to this Mac. Items already in the library count as
   /// collected, so none is processed or published again.

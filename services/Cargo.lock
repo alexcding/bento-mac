@@ -345,6 +345,7 @@ name = "bento-secrets-keychain"
 version = "0.1.0"
 dependencies = [
  "bento-app",
+ "core-foundation",
  "security-framework",
 ]
 

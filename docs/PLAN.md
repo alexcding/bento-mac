@@ -61,8 +61,9 @@ results through iCloud. An iOS reader follows later. Notes are out of scope for 
   only by `bento-collector`, which ships as a background helper app
   (`Bento.app/Contents/Helpers/BentoCollector.app`) so it can carry a keychain access group. In a
   build signed with a team they are iCloud Keychain items (synchronizable, readable after first
-  unlock), so any of the user's Macs can take over collecting without signing in again; an ad-hoc
-  build keeps them in the local login keychain. `bento-collector secrets backend` says which.
+  unlock), so with iCloud Keychain on, another of the user's Macs can take over collecting without
+  signing in again; an ad-hoc build keeps them in the local login keychain. They are entered on the
+  collector Mac. `bento-collector secrets backend` says which.
 
 ### SwiftUI layering (same as cascade-mac)
 

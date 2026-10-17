@@ -11,6 +11,8 @@
 use std::sync::OnceLock;
 
 use bento_app::{PortError, SecretStore};
+use core_foundation::base::TCFType;
+use core_foundation::string::CFString;
 use security_framework::access_control::{ProtectionMode, SecAccessControl};
 use security_framework::passwords::{
     delete_generic_password_options, generic_password, set_generic_password_options,
@@ -21,6 +23,11 @@ use security_framework::passwords_options::PasswordOptions;
 const ITEM_NOT_FOUND: i32 = -25300;
 /// `errSecMissingEntitlement`: the binary has no keychain access group, so no iCloud Keychain.
 const MISSING_ENTITLEMENT: i32 = -34018;
+
+/// `kSecAttrAccessible` and `kSecAttrAccessibleAfterFirstUnlock`, which security-framework does not
+/// expose. Their values are stored in every keychain item, so they never change.
+const ATTR_ACCESSIBLE: &str = "pdmn";
+const ACCESSIBLE_AFTER_FIRST_UNLOCK: &str = "ck";
 
 /// Where secrets are kept.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,7 +45,7 @@ pub struct KeychainSecrets {
 
 impl Default for KeychainSecrets {
     fn default() -> Self {
-        Self::with_service("io.github.alexcding.bento.plugin-secrets")
+        Self::with_service("com.alexcding.bento.plugin-secrets")
     }
 }
 
@@ -113,17 +120,20 @@ impl KeychainSecrets {
         }
     }
 
-    /// Replaces a synced item. Deleting first keeps its accessibility and sync attributes out of
-    /// an update query, which the Keychain refuses.
+    /// Replaces a synced item, readable after the first unlock so the daemon works while the
+    /// screen is locked. That is set with `kSecAttrAccessible`: the Keychain refuses an access
+    /// control object on a synchronizable item (`errSecParam`). Deleting first keeps these
+    /// attributes out of an update query.
     fn write_synced(&self, account: &str, value: &str) -> Result<(), PortError> {
         ignore_missing(delete_generic_password_options(self.synced(account)))?;
         let mut options = self.synced(account);
-        let access = SecAccessControl::create_with_protection(
-            Some(ProtectionMode::AccessibleAfterFirstUnlock),
-            0,
-        )
-        .map_err(PortError::new)?;
-        options.set_access_control(access);
+        let accessible = (
+            CFString::from_static_string(ATTR_ACCESSIBLE),
+            CFString::from_static_string(ACCESSIBLE_AFTER_FIRST_UNLOCK).into_CFType(),
+        );
+        // `PasswordOptions` has no setter for plain accessibility.
+        #[allow(deprecated)]
+        options.query.push(accessible);
         set_generic_password_options(value.as_bytes(), options).map_err(PortError::new)
     }
 
@@ -172,8 +182,12 @@ mod tests {
     #[test]
     #[ignore = "uses the login keychain"]
     fn round_trips_through_the_keychain() {
-        let store = KeychainSecrets::with_service("io.github.alexcding.bento.tests");
+        let store = KeychainSecrets::with_service("com.alexcding.bento.tests");
         assert_eq!(store.backend().unwrap(), Backend::Local);
+        // The synced write's attributes are accepted: an unsigned binary is refused for its
+        // missing entitlement, not for a bad parameter (`errSecParam`, -50).
+        let error = store.write_synced("p.k", "v").unwrap_err().to_string();
+        assert!(error.contains("entitlement"), "{error}");
         store.delete("p", "k").unwrap();
         assert_eq!(store.secret("p", "k").unwrap(), None);
 

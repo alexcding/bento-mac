@@ -308,6 +308,6 @@ struct DestinationSettingsTests {
     #expect(!model.canManageDestinations && collector.calls.isEmpty && store.calls.isEmpty)
 
     collector.secretsSynced = true
-    #expect(model.canManageDestinations, "synced secrets can be entered on any Mac")
+    #expect(!model.canManageDestinations, "still only on the collector: iCloud Keychain may be off")
   }
 }

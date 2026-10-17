@@ -231,6 +231,18 @@ mod tests {
     }
 
     #[test]
+    fn plain_text_titles_keep_angle_brackets() {
+        let feed = r#"<?xml version="1.0"?><rss version="2.0"><channel><title>t</title>
+            <item><guid>1</guid><title>Why Vec&lt;T&gt; beats arrays &amp; 1 &lt; 2 is true</title></item>
+            </channel></rss>"#;
+        let items = parse(feed.as_bytes()).unwrap();
+        assert_eq!(
+            items[0].title.as_deref(),
+            Some("Why Vec<T> beats arrays & 1 < 2 is true")
+        );
+    }
+
+    #[test]
     fn rejects_non_feeds() {
         assert!(matches!(
             parse(b"<html><body>nope</body></html>"),

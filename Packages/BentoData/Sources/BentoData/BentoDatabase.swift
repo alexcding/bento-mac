@@ -20,6 +20,7 @@ public enum BentoDatabase {
     var configuration = Configuration()
     configuration.foreignKeysEnabled = true
     configuration.prepareDatabase { db in
+      db.add(function: $bentoLower)
       if let iCloudContainer {
         try db.attachMetadatabase(containerIdentifier: iCloudContainer)
       }
@@ -185,6 +186,12 @@ public enum BentoDatabase {
     }
     return migrator
   }
+}
+
+/// Unicode-aware lowercase for search; SQLite's `lower()` only folds ASCII.
+@DatabaseFunction
+nonisolated func bentoLower(_ text: String) -> String {
+  text.lowercased()
 }
 
 extension DependencyValues {

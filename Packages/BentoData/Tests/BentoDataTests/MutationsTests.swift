@@ -73,6 +73,9 @@ import Testing
 
       try Mutations.setRead(db, itemIDs: [item.id], false)
       #expect(try ReadState.count().fetchOne(db) == 0)
+
+      try Mutations.setRead(db, itemIDs: [UUID()], true)
+      #expect(try ReadState.count().fetchOne(db) == 0, "no feed item, no read state")
     }
   }
 

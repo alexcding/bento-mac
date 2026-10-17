@@ -84,14 +84,16 @@ public enum Mutations {
     }
   }
 
-  /// Marks items read or unread. Already-read items keep their original read time.
+  /// Marks items read or unread. Already-read items keep their original read time. IDs with no
+  /// feed item (a bookmark whose original is gone) are skipped: read state belongs to feed items.
   public static func setRead(_ db: Database, itemIDs: [FeedItem.ID], _ read: Bool, now: Date = .now) throws {
     guard read else {
       try ReadState.where { $0.feedItemID.in(itemIDs) }.delete().execute(db)
       return
     }
+    let existing = Set(try FeedItem.where { $0.id.in(itemIDs) }.select(\.id).fetchAll(db))
     let alreadyRead = Set(try ReadState.where { $0.feedItemID.in(itemIDs) }.select(\.feedItemID).fetchAll(db))
-    for id in itemIDs where !alreadyRead.contains(id) {
+    for id in itemIDs where existing.contains(id) && !alreadyRead.contains(id) {
       try ReadState.insert { ReadState(feedItemID: id, readAt: now) }.execute(db)
     }
   }

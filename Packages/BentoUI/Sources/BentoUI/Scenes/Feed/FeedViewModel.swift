@@ -70,8 +70,16 @@ public final class FeedViewModel {
     withErrorReporting { try store.setRead([row.id], !row.isRead) }
   }
 
+  /// Marks everything in this view read: the channel, all items, or (for Bookmarks) only the
+  /// listed bookmarks.
   func markAllRead() {
-    withErrorReporting { try store.markAllRead(channelID: destination.channelID) }
+    withErrorReporting {
+      if destination == .bookmarks {
+        try store.setRead(rows.map(\.id), true)
+      } else {
+        try store.markAllRead(channelID: destination.channelID)
+      }
+    }
   }
 
   /// Moves the selection by `offset` rows (keyboard j/k).

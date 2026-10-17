@@ -35,7 +35,7 @@ enum FeedQuery {
         if !needle.isEmpty {
           #sql(
             """
-            instr(lower(coalesce(\(item.title), '') || ' ' || coalesce(\(item.translatedTitle), '') || ' ' || \
+            instr(bentoLower(coalesce(\(item.title), '') || ' ' || coalesce(\(item.translatedTitle), '') || ' ' || \
             \(item.text) || ' ' || coalesce(\(item.summary), '')), \(bind: needle)) > 0
             """,
             as: Bool.self
@@ -60,7 +60,7 @@ enum FeedQuery {
         if !needle.isEmpty {
           #sql(
             """
-            instr(lower(coalesce(\(bookmark.title), '') || ' ' || coalesce(\(bookmark.translatedTitle), '') || ' ' || \
+            instr(bentoLower(coalesce(\(bookmark.title), '') || ' ' || coalesce(\(bookmark.translatedTitle), '') || ' ' || \
             \(bookmark.text) || ' ' || coalesce(\(bookmark.summary), '')), \(bind: needle)) > 0
             """,
             as: Bool.self

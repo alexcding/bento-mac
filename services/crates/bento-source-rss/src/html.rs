@@ -3,18 +3,19 @@
 
 pub fn to_text(html: &str) -> String {
     let mut text = String::with_capacity(html.len());
-    let mut in_tag = false;
-    for c in html.chars() {
-        match c {
-            '<' => in_tag = true,
-            '>' if in_tag => {
-                in_tag = false;
-                text.push(' ');
-            }
-            _ if !in_tag => text.push(c),
-            _ => {}
+    let mut rest = html;
+    while let Some(start) = rest.find('<') {
+        text.push_str(&rest[..start]);
+        let tail = &rest[start..];
+        if let Some(len) = tag_len(tail) {
+            text.push(' ');
+            rest = &tail[len..];
+        } else {
+            text.push('<');
+            rest = &tail[1..];
         }
     }
+    text.push_str(rest);
     let decoded = decode_entities(&text);
     let mut out = String::with_capacity(decoded.len());
     for word in decoded.split_whitespace() {
@@ -24,6 +25,77 @@ pub fn to_text(html: &str) -> String {
         out.push_str(word);
     }
     out
+}
+
+/// HTML elements stripped from feed text. Anything else in angle brackets (`Vec<T>`, `1 < 2`) is
+/// kept, because feed parsers hand back decoded text labelled as HTML.
+const TAGS: &[&str] = &[
+    "a",
+    "abbr",
+    "b",
+    "blockquote",
+    "br",
+    "cite",
+    "code",
+    "dd",
+    "del",
+    "div",
+    "dl",
+    "dt",
+    "em",
+    "figcaption",
+    "figure",
+    "font",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "hr",
+    "i",
+    "img",
+    "ins",
+    "li",
+    "mark",
+    "ol",
+    "p",
+    "picture",
+    "pre",
+    "q",
+    "s",
+    "small",
+    "source",
+    "span",
+    "strike",
+    "strong",
+    "sub",
+    "sup",
+    "table",
+    "tbody",
+    "td",
+    "th",
+    "thead",
+    "tr",
+    "u",
+    "ul",
+    "video",
+];
+
+/// Length of the HTML tag or comment at the start of `text`, if it is one.
+fn tag_len(text: &str) -> Option<usize> {
+    if let Some(comment) = text.strip_prefix("<!--") {
+        return comment.find("-->").map(|end| 4 + end + 3);
+    }
+    let end = text.find('>')?;
+    let inner = text[1..end].trim_start_matches('/');
+    let name: String = inner
+        .chars()
+        .take_while(char::is_ascii_alphanumeric)
+        .collect();
+    let after_name = &inner[name.len()..];
+    let well_formed = after_name.is_empty() || after_name.starts_with([' ', '\t', '\n', '/']);
+    (well_formed && TAGS.contains(&name.to_ascii_lowercase().as_str())).then_some(end + 1)
 }
 
 /// Tags are replaced by spaces, so `Hello <b>world</b>.` would read `Hello world .`.
@@ -89,6 +161,19 @@ mod tests {
             to_text("<p>Hello <b>world</b>.</p>\n\n<p>Next</p>"),
             "Hello world. Next"
         );
+    }
+
+    #[test]
+    fn keeps_angle_brackets_that_are_not_html() {
+        assert_eq!(
+            to_text("Why Vec<T> beats arrays & 1 < 2"),
+            "Why Vec<T> beats arrays & 1 < 2"
+        );
+        assert_eq!(
+            to_text("<a href=\"x\">link</a><!-- c --><br/>end"),
+            "link end"
+        );
+        assert_eq!(to_text("a <B>bold</B> <unknown>"), "a bold <unknown>");
     }
 
     #[test]

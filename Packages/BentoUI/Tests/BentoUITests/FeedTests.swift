@@ -22,7 +22,7 @@ import Testing
       let news = try Mutations.addChannel(db, name: "News")
       let source = try Mutations.addSource(db, channelID: news, pluginID: "rss", name: "n", query: "n")
       let newsItem = item(sourceID: source, title: "Rust 2.0 released", publishedAt: Date(timeIntervalSince1970: 2))
-      let otherItem = item(title: "Weather", summary: "Sunny", publishedAt: Date(timeIntervalSince1970: 1))
+      let otherItem = item(title: "Über Wetter", summary: "Sunny", publishedAt: Date(timeIntervalSince1970: 1))
       try FeedItem.insert { newsItem; otherItem }.execute(db)
       return (news, newsItem, otherItem)
     }
@@ -31,6 +31,7 @@ import Testing
     #expect(try rows(news).map(\.id) == [newsItem.id])
     #expect(try rows(search: "RUST").map(\.id) == [newsItem.id])
     #expect(try rows(search: "sunny").map(\.id) == [otherItem.id], "searches the summary")
+    #expect(try rows(search: "über").map(\.id) == [otherItem.id], "case-insensitive beyond ASCII")
 
     try database.write { try Mutations.setRead($0, itemIDs: [newsItem.id], true) }
     #expect(try rows(unreadOnly: true).map(\.id) == [otherItem.id])
@@ -80,6 +81,21 @@ struct FeedViewModelTests {
     #expect(model.selectedItemID == ids[2])
     model.moveSelection(by: -1)
     #expect(model.selectedItemID == ids[1])
+  }
+
+  @Test func markAllReadInBookmarksMarksOnlyBookmarks() async throws {
+    @Dependency(\.defaultDatabase) var database
+    let saved = item()
+    try await database.write { db in
+      try FeedItem.insert { saved; item() }.execute(db)
+      try Mutations.setBookmarked(db, itemID: saved.id, true)
+    }
+    let model = FeedViewModel(destination: .bookmarks, store: store)
+    await model.reload()
+
+    model.markAllRead()
+
+    #expect(store.calls == ["setRead(1,true)"])
   }
 
   @Test func actionsGoThroughTheStore() {

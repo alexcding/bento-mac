@@ -49,7 +49,7 @@ impl<S: SourceStateStore, O: Outbox, C: Clock> Scheduler<S, O, C> {
             let state = self.states.source_state(source.id)?;
             if state
                 .as_ref()
-                .is_some_and(|s| s.next_run_at > self.clock.now())
+                .is_some_and(|s| !is_due(s, source, self.clock.now()))
             {
                 continue;
             }
@@ -88,6 +88,20 @@ impl<S: SourceStateStore, O: Outbox, C: Clock> Scheduler<S, O, C> {
     }
 }
 
+/// Due at `next_run_at`, or sooner when the interval was shortened since the last successful run
+/// (failure backoff is kept as scheduled).
+fn is_due(state: &SourceState, source: &SourceConfig, now: DateTime<Utc>) -> bool {
+    state.next_run_at <= now
+        || (state.consecutive_failures == 0
+            && state
+                .last_run_at
+                .is_some_and(|last| last + interval(source) <= now))
+}
+
+fn interval(source: &SourceConfig) -> Duration {
+    Duration::minutes(i64::from(source.interval_minutes.max(1)))
+}
+
 fn run_record(
     source_id: Uuid,
     started_at: DateTime<Utc>,
@@ -115,7 +129,7 @@ fn next_state(
     outcome: &Result<IngestReport, PortError>,
     now: DateTime<Utc>,
 ) -> SourceState {
-    let interval = Duration::minutes(i64::from(source.interval_minutes.max(1)));
+    let interval = interval(source);
     match outcome {
         Ok(report) => SourceState {
             source_id: source.id,
@@ -260,6 +274,26 @@ mod tests {
             1,
             "only c is new"
         );
+        assert_eq!(fetcher.calls(), 2);
+    }
+
+    #[test]
+    fn shortened_interval_applies_without_waiting_for_the_old_one() {
+        let fetcher = FakeFetcher::new(vec![Ok(items(&["a"])), Ok(items(&["b"]))]);
+        let (states, outbox, clock) = (
+            FakeStates::default(),
+            FakeOutbox::default(),
+            FixedClock::at(9),
+        );
+        let scheduler = Scheduler::new(registry(fetcher.clone()), &states, &outbox, &clock);
+        let mut slow = source(1, "rss", true);
+        slow.interval_minutes = 360;
+        block_on(scheduler.run_due(&config(vec![slow.clone()]))).unwrap();
+
+        *clock.0.borrow_mut() += Duration::minutes(10);
+        slow.interval_minutes = 10;
+        block_on(scheduler.run_due(&config(vec![slow]))).unwrap();
+
         assert_eq!(fetcher.calls(), 2);
     }
 

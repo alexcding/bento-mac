@@ -9,12 +9,18 @@ public protocol LibraryStoring {
   func addChannel(name: String) throws -> Channel.ID
   func updateChannel(_ channel: Channel) throws
   func deleteChannel(_ id: Channel.ID) throws
-  func addFeed(channelID: Channel.ID, url: URL) throws
+  /// Adds a source of `pluginID` to a channel; `name` defaults from the query.
+  func addSource(channelID: Channel.ID, pluginID: String, query: String, name: String?) throws
   func updateSource(_ source: Source) throws
   func deleteSource(_ id: Source.ID) throws
   func setBookmarked(_ itemID: FeedItem.ID, _ bookmarked: Bool) throws
   func setRead(_ itemIDs: [FeedItem.ID], _ read: Bool) throws
   func markAllRead(channelID: Channel.ID?) throws
+  func saveAiProfile(_ profile: AiProfile) throws
+  func deleteAiProfile(_ id: AiProfile.ID) throws
+  func saveAiTask(_ task: AiTask) throws
+  func deleteAiTask(_ id: AiTask.ID) throws
+  func saveSettings(_ settings: AppSettings) throws
 }
 
 public struct NativeLibraryStore: LibraryStoring {
@@ -36,12 +42,18 @@ public struct NativeLibraryStore: LibraryStoring {
     try database.write { try Mutations.deleteChannel($0, id: id) }
   }
 
-  public func addFeed(channelID: Channel.ID, url: URL) throws {
+  public func addSource(channelID: Channel.ID, pluginID: String, query: String, name: String?) throws {
+    let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    let name = name.flatMap { $0.isEmpty ? nil : $0 } ?? Self.defaultName(pluginID: pluginID, query: query)
     try database.write { db in
-      _ = try Mutations.addSource(
-        db, channelID: channelID, pluginID: "rss", name: url.host() ?? url.absoluteString, query: url.absoluteString
-      )
+      _ = try Mutations.addSource(db, channelID: channelID, pluginID: pluginID, name: name, query: query)
     }
+  }
+
+  /// A feed's host, else the query, else the plugin.
+  static func defaultName(pluginID: String, query: String) -> String {
+    if let host = URL(string: query)?.host(), !host.isEmpty { return host }
+    return query.isEmpty ? pluginID : query
   }
 
   public func updateSource(_ source: Source) throws {
@@ -62,5 +74,25 @@ public struct NativeLibraryStore: LibraryStoring {
 
   public func markAllRead(channelID: Channel.ID?) throws {
     try database.write { try Mutations.markAllRead($0, channelID: channelID) }
+  }
+
+  public func saveAiProfile(_ profile: AiProfile) throws {
+    try database.write { try Mutations.saveAiProfile($0, profile) }
+  }
+
+  public func deleteAiProfile(_ id: AiProfile.ID) throws {
+    try database.write { try Mutations.deleteAiProfile($0, id: id) }
+  }
+
+  public func saveAiTask(_ task: AiTask) throws {
+    try database.write { try Mutations.saveAiTask($0, task) }
+  }
+
+  public func deleteAiTask(_ id: AiTask.ID) throws {
+    try database.write { try Mutations.deleteAiTask($0, id: id) }
+  }
+
+  public func saveSettings(_ settings: AppSettings) throws {
+    try database.write { try Mutations.saveSettings($0, settings) }
   }
 }

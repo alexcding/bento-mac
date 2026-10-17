@@ -139,12 +139,100 @@ struct FeedViewModelTests {
   }
 }
 
-@Suite struct ChannelSettingsTests {
-  @Test func acceptsOnlyHTTPFeedURLs() {
-    #expect(ChannelSettingsViewModel.feedURL(" https://example.com/feed.xml ") != nil)
-    #expect(ChannelSettingsViewModel.feedURL("http://example.com") != nil)
-    #expect(ChannelSettingsViewModel.feedURL("ftp://example.com") == nil)
-    #expect(ChannelSettingsViewModel.feedURL("example.com/feed") == nil)
-    #expect(ChannelSettingsViewModel.feedURL("") == nil)
+@Suite struct PluginInfoTests {
+  @Test func rssNeedsAWebURLOtherPluginsAcceptAnyQuery() {
+    #expect(PluginInfo.rss.accepts(query: " https://example.com/feed.xml "))
+    #expect(!PluginInfo.rss.accepts(query: "ftp://example.com"))
+    #expect(!PluginInfo.rss.accepts(query: "example.com/feed"))
+    let x = plugin("x", manifest: #"{"id":"x","capabilities":["source"],"source":{"default_interval_minutes":15}}"#)
+    #expect(x.accepts(query: ""))
+    #expect(x.accepts(query: "@rustlang"))
+  }
+
+  @Test func decodesAuthKindsHintsAndRequirements() {
+    let x = plugin(
+      "x",
+      manifest: #"{"id":"x","description":"X posts","capabilities":["source"],"auth":{"kind":"secrets","fields":[{"key":"auth_token","label":"auth_token cookie","help":"From your browser"}]},"source":{"default_interval_minutes":15,"query_hint":"@handle"}}"#,
+      requirements: #"[{"name":"twitter-cli","installed":false,"detail":"`twitter` not found","install":"pipx install twitter-cli"}]"#
+    )
+    #expect(x.isSource && x.queryHint == "@handle" && x.defaultIntervalMinutes == 15)
+    #expect(x.secretFields.map(\.key) == ["auth_token"])
+    #expect(!x.hasInteractiveLogin)
+    #expect(x.requirements.first?.install == "pipx install twitter-cli")
+
+    let bilibili = plugin("bilibili", manifest: #"{"id":"bilibili","capabilities":["source","auth"],"auth":{"kind":"interactive","secrets":["sessdata"]},"source":{"default_interval_minutes":30}}"#)
+    #expect(bilibili.hasInteractiveLogin && bilibili.interactiveSecretKeys == ["sessdata"])
+  }
+}
+
+@MainActor
+@Suite(.dependency(\.defaultDatabase, try makeDatabase()))
+struct SettingsTests {
+  let store = FakeLibraryStore()
+
+  @Test func pluginsTabOnlyWithACollector() {
+    #expect(SettingsViewModel(store: store, collector: nil).tabs == [.general, .ai])
+    #expect(SettingsViewModel(store: store, collector: FakeCollector(plugins: [])).tabs == [.general, .plugins, .ai])
+  }
+
+  @Test func savesSettingsSecretsAndHttpKeys() async {
+    let collector = FakeCollector(plugins: [])
+    let model = SettingsViewModel(store: store, collector: collector)
+    let x = plugin("x", manifest: #"{"id":"x","auth":{"kind":"secrets","fields":[{"key":"auth_token","label":"a"},{"key":"ct0","label":"c"}]}}"#)
+
+    model.updateSettings { $0.skipWeekends = true }
+    await model.saveSecret("tok", key: "auth_token", plugin: x)
+    await model.refreshSecrets(for: x)
+    var profile = AiProfile()
+    profile.name = "DeepSeek"
+    profile.kind = .http
+    model.save(profile, apiKey: "sk-1")
+    try? await Task.sleep(for: .milliseconds(50))
+
+    #expect(store.calls == ["saveSettings(true)", "saveAiProfile(DeepSeek)"])
+    #expect(collector.calls == ["set(x.auth_token)", "set(ai.\(profile.id.uuidString.lowercased()))"])
+    #expect(!model.isSignedIn(x), "ct0 is still missing")
+  }
+
+  @Test func presetsStartFromTheBuiltInText() {
+    let model = SettingsViewModel(store: store, collector: nil)
+    model.editPreset("translate")
+    #expect(model.editingTask?.key == "translate")
+    #expect(model.editingTask?.outputs.map(\.target) == ["translated_title", "detail"])
+  }
+
+  @Test func loginShowsPromptsAndFinishes() async {
+    let collector = FakeCollector(plugins: [])
+    collector.events = [.prompt(kind: .qr, message: "Scan", qr: "https://qr"), .done]
+    let model = SettingsViewModel(store: store, collector: collector)
+    model.signIn(plugin("bilibili", manifest: #"{"id":"bilibili","auth":{"kind":"interactive","secrets":["sessdata"]}}"#))
+    let login = model.login!
+
+    login.start()
+    try? await Task.sleep(for: .milliseconds(50))
+
+    #expect(login.isDone)
+    login.close()
+    #expect(model.login == nil)
+  }
+}
+
+@MainActor
+@Suite(.dependency(\.defaultDatabase, try makeDatabase()))
+struct SourceEditorTests {
+  let store = FakeLibraryStore()
+
+  @Test func fetchNowReportsTheSummary() async {
+    let model = SourceEditorViewModel(sourceID: UUID(), store: store, statuses: NoSourceStatus(), collector: FakeCollector(plugins: []))
+
+    await model.fetchNow()
+
+    #expect(model.runMessage == "Fetched 3 · 2 new")
+  }
+
+  @Test func describesBacklogAndFailures() {
+    let summary = RunSummary(fetched: 5, new: 0, backlogSkipped: 5, aiFailures: ["translate: down"])
+    #expect(SourceEditorViewModel.describe(summary) == "Fetched 5 · 0 new · 5 existing posts skipped · AI: translate: down")
+    #expect(SourceEditorViewModel.describe(RunSummary(error: "no plugin")) == "no plugin")
   }
 }

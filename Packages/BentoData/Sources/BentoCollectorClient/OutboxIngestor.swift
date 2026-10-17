@@ -77,6 +77,11 @@ nonisolated struct OutboxRow {
   var detail: Data?
 }
 
+/// Decodes a `bento_domain::FeedItem` as the collector prints it (outbox rows, dry runs).
+public func decodeCollectorFeedItem(_ data: Data) throws -> FeedItem {
+  try OutboxPayload.decode(data).feedItem
+}
+
 /// `bento_domain::FeedItem` as JSON: snake_case keys, dates in Unix milliseconds.
 struct OutboxPayload: Decodable {
   let feedItem: FeedItem

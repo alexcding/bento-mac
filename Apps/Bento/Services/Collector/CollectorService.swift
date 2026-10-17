@@ -20,6 +20,7 @@ final class CollectorService: SourceStatusProviding {
   private(set) var lastSync: (date: Date, saved: Int)?
   private(set) var lastError: String?
   private(set) var statuses: [Source.ID: SourceStatus] = [:]
+  private(set) var plugins: [PluginInfo] = []
 
   let dataDirectory: URL
   var collectorURL: URL { dataDirectory.appending(path: "collector.sqlite") }
@@ -78,10 +79,15 @@ final class CollectorService: SourceStatusProviding {
         try CollectorConfigExporter.write(config, to: configURL)
         let saved = try ingestor.ingestPending()
         let statuses = try CollectorStatusReader.read(collectorURL: collectorURL)
-        return (saved, statuses)
+        let plugins = try CollectorDiagnostics.plugins(collectorURL: collectorURL)
+        return (saved, statuses, plugins)
       }.value
       lastSync = (.now, result.0)
       statuses = result.1
+      let plugins = result.2.map {
+        PluginInfo(id: $0.id, name: $0.name, version: $0.version, manifest: $0.manifest, requirements: $0.requirements, error: $0.error)
+      }
+      if plugins != self.plugins { self.plugins = plugins }
       lastError = nil
       agentStatus = agent.status
       if result.0 > 0 { logger.info("Saved \(result.0) outbox rows") }

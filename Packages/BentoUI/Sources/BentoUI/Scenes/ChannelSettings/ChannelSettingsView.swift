@@ -16,14 +16,16 @@ struct ChannelSettingsView: View {
         }
         Section("Sources") {
           ForEach(model.sources) { source in
-            SourceRow(source: source, status: model.status(for: source), update: model.update, delete: model.delete)
+            SourceRow(
+              source: source,
+              pluginName: model.pluginName(for: source),
+              status: model.status(for: source),
+              toggle: { var copy = source; copy.isEnabled = $0; model.update(copy) },
+              edit: { model.edit(source) },
+              delete: { model.delete(source) }
+            )
           }
-          HStack {
-            TextField("RSS or Atom feed URL", text: $model.newFeedURL)
-              .onSubmit { model.addFeed() }
-            Button("Add") { model.addFeed() }
-              .disabled(!model.canAddFeed)
-          }
+          addSourceRow
         }
       }
       .formStyle(.grouped)
@@ -34,56 +36,60 @@ struct ChannelSettingsView: View {
         }
       }
     }
-    .frame(minWidth: 480, minHeight: 420)
+    .frame(minWidth: 520, minHeight: 440)
     .task { await model.load() }
+    .sheet(item: $model.sourceEditor) { editor in
+      SourceEditorView(model: editor)
+    }
+  }
+
+  private var addSourceRow: some View {
+    HStack {
+      Picker("Type", selection: $model.newSourcePluginID) {
+        ForEach(model.availablePlugins) { plugin in
+          Text(plugin.name).tag(plugin.id)
+        }
+      }
+      .labelsHidden()
+      .fixedSize()
+      TextField(model.newSourcePlugin?.queryHint ?? "Query", text: $model.newSourceQuery)
+        .onSubmit { model.addSource() }
+      Button("Add") { model.addSource() }
+        .disabled(!model.canAddSource)
+    }
   }
 }
 
 private struct SourceRow: View {
   let source: Source
+  let pluginName: String
   let status: SourceStatus?
-  let update: (Source) -> Void
-  let delete: (Source) -> Void
+  let toggle: (Bool) -> Void
+  let edit: () -> Void
+  let delete: () -> Void
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 6) {
-      HStack {
-        Toggle(source.name, isOn: binding(\.isEnabled))
-        Spacer()
-        Picker("Every", selection: binding(\.intervalMinutes)) {
-          ForEach(ChannelSettingsViewModel.intervals, id: \.self) { minutes in
-            Text(minutes < 60 ? "\(minutes) min" : "\(minutes / 60) h").tag(minutes)
-          }
-        }
-        .fixedSize()
-        Button("Delete", systemImage: "trash", role: .destructive) { delete(source) }
-          .labelStyle(.iconOnly)
-          .buttonStyle(.borderless)
-      }
-      Text(source.query).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-      if let status {
-        if let error = status.lastError {
-          Label(error, systemImage: "exclamationmark.triangle")
-            .font(.caption)
-            .foregroundStyle(.orange)
-            .lineLimit(2)
-        } else if let lastRun = status.lastRunAt {
+    HStack(alignment: .top) {
+      Toggle("", isOn: Binding(get: { source.isEnabled }, set: { toggle($0) })).labelsHidden()
+      VStack(alignment: .leading, spacing: 4) {
+        Text(source.name)
+        Text("\(pluginName) · \(source.query.isEmpty ? "default feed" : source.query)")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .lineLimit(1)
+        if let error = status?.lastError {
+          Label(error, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange).lineLimit(2)
+        } else if let status, let lastRun = status.lastRunAt {
           Text("Fetched \(lastRun.formatted(.relative(presentation: .named))) · \(status.lastNewItems) new")
             .font(.caption)
             .foregroundStyle(.secondary)
         }
       }
+      Spacer()
+      Button("Edit", systemImage: "slider.horizontal.3", action: edit).labelStyle(.iconOnly).buttonStyle(.borderless)
+      Button("Delete", systemImage: "trash", role: .destructive, action: delete)
+        .labelStyle(.iconOnly)
+        .buttonStyle(.borderless)
     }
-  }
-
-  private func binding<Value>(_ keyPath: WritableKeyPath<Source, Value>) -> Binding<Value> {
-    Binding(
-      get: { source[keyPath: keyPath] },
-      set: { value in
-        var copy = source
-        copy[keyPath: keyPath] = value
-        update(copy)
-      }
-    )
   }
 }

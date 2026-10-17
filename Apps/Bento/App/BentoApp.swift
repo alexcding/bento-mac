@@ -11,6 +11,7 @@ struct BentoApp: App {
   @State private var coordinator: AppCoordinator
   @State private var collector: CollectorService
   @State private var collectorModel: CollectorViewModel
+  @State private var settingsModel: SettingsViewModel
 
   init() {
     let directory = try! BentoDatabase.defaultDirectory()
@@ -23,10 +24,12 @@ struct BentoApp: App {
     let collector = CollectorService(dataDirectory: directory, database: database)
     _collector = State(initialValue: collector)
     _collectorModel = State(initialValue: CollectorViewModel(service: collector))
+    let store = NativeLibraryStore(database: database)
     _coordinator = State(
-      initialValue: AppCoordinator(
-        container: .native(store: NativeLibraryStore(database: database), statuses: collector)
-      )
+      initialValue: AppCoordinator(container: .native(store: store, statuses: collector, collector: collector))
+    )
+    _settingsModel = State(
+      initialValue: NativeSettingsFeatureFactory(store: store, collector: collector).makeSettings()
     )
   }
 
@@ -42,6 +45,10 @@ struct BentoApp: App {
 
     Window("Collector", id: Self.collectorWindowID) {
       CollectorView(model: collectorModel)
+    }
+
+    Settings {
+      SettingsView(model: settingsModel)
     }
 
     MenuBarExtra("Bento", systemImage: "tray.full") {

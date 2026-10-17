@@ -22,6 +22,16 @@ public protocol ChannelSettingsFeatureFactory {
   func makeChannelSettings(channelID: Channel.ID) -> ChannelSettingsViewModel
 }
 
+@MainActor
+public protocol SourceEditorFeatureFactory {
+  func makeSourceEditor(sourceID: Source.ID) -> SourceEditorViewModel
+}
+
+@MainActor
+public protocol SettingsFeatureFactory {
+  func makeSettings() -> SettingsViewModel
+}
+
 public struct NativeSidebarFeatureFactory: SidebarFeatureFactory {
   let store: any LibraryStoring
   public func makeSidebar() -> SidebarViewModel { SidebarViewModel(store: store) }
@@ -44,8 +54,38 @@ public struct NativeItemDetailFeatureFactory: ItemDetailFeatureFactory {
 public struct NativeChannelSettingsFeatureFactory: ChannelSettingsFeatureFactory {
   let store: any LibraryStoring
   let statuses: any SourceStatusProviding
+  let collector: (any CollectorControlling)?
   public func makeChannelSettings(channelID: Channel.ID) -> ChannelSettingsViewModel {
-    ChannelSettingsViewModel(channelID: channelID, store: store, statuses: statuses)
+    ChannelSettingsViewModel(
+      channelID: channelID,
+      store: store,
+      statuses: statuses,
+      collector: collector,
+      sourceEditors: NativeSourceEditorFeatureFactory(store: store, statuses: statuses, collector: collector)
+    )
+  }
+}
+
+public struct NativeSourceEditorFeatureFactory: SourceEditorFeatureFactory {
+  let store: any LibraryStoring
+  let statuses: any SourceStatusProviding
+  let collector: (any CollectorControlling)?
+  public func makeSourceEditor(sourceID: Source.ID) -> SourceEditorViewModel {
+    SourceEditorViewModel(sourceID: sourceID, store: store, statuses: statuses, collector: collector)
+  }
+}
+
+public struct NativeSettingsFeatureFactory: SettingsFeatureFactory {
+  let store: any LibraryStoring
+  let collector: (any CollectorControlling)?
+
+  public init(store: any LibraryStoring, collector: (any CollectorControlling)?) {
+    self.store = store
+    self.collector = collector
+  }
+
+  public func makeSettings() -> SettingsViewModel {
+    SettingsViewModel(store: store, collector: collector)
   }
 }
 
@@ -68,13 +108,18 @@ public struct AppContainer {
     self.channelSettings = channelSettings
   }
 
+  /// `collector` is the Mac's connection to the collector daemon; nil on iOS.
   @MainActor
-  public static func native(store: any LibraryStoring, statuses: any SourceStatusProviding) -> AppContainer {
+  public static func native(
+    store: any LibraryStoring,
+    statuses: any SourceStatusProviding,
+    collector: (any CollectorControlling)? = nil
+  ) -> AppContainer {
     AppContainer(
       sidebar: NativeSidebarFeatureFactory(store: store),
       feed: NativeFeedFeatureFactory(store: store),
       itemDetail: NativeItemDetailFeatureFactory(store: store),
-      channelSettings: NativeChannelSettingsFeatureFactory(store: store, statuses: statuses)
+      channelSettings: NativeChannelSettingsFeatureFactory(store: store, statuses: statuses, collector: collector)
     )
   }
 }

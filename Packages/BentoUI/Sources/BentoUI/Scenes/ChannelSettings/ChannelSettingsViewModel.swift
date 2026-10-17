@@ -201,17 +201,18 @@ public final class ChannelSettingsViewModel: Identifiable {
 }
 
 extension Destination.Kind {
-  static let addable: [Self] = [.discord, .telegramBot, .telegramAccount]
+  static let addable: [Self] = [.discord, .telegramBot, .telegramAccount, .x]
 
-  /// A webhook URL or bot token; a Telegram account uses the Telegram plugin's sign-in instead.
-  var needsSecret: Bool { self != .telegramAccount }
-  var needsChat: Bool { self != .discord }
+  /// A webhook URL or bot token; posting as you uses the Telegram or X plugin's sign-in instead.
+  var needsSecret: Bool { self == .discord || self == .telegramBot }
+  var needsChat: Bool { self == .telegramBot || self == .telegramAccount }
 
   var label: String {
     switch self {
     case .discord: "Discord"
     case .telegramBot: "Telegram bot"
     case .telegramAccount: "Telegram (as you)"
+    case .x: "X (as you)"
     }
   }
 
@@ -220,7 +221,7 @@ extension Destination.Kind {
     switch self {
     case .discord: "Webhook URL"
     case .telegramBot: "Bot token"
-    case .telegramAccount: ""
+    case .telegramAccount, .x: ""
     }
   }
 

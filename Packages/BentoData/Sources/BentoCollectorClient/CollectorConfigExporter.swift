@@ -74,6 +74,7 @@ public enum CollectorConfigExporter {
     case .discord: "discord"
     case .telegramBot: "telegram_bot"
     case .telegramAccount: "telegram_account"
+    case .x: "x"
     }
   }
 

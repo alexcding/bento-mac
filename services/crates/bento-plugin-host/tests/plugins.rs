@@ -616,3 +616,32 @@ async fn protocol_publish_sends_the_post_and_reports_flood_waits() {
         "{error}"
     );
 }
+
+#[test]
+fn x_posts_short_text_after_the_options() {
+    let registry = registry();
+    let publisher = registry.plugin("x").unwrap().publisher.clone().unwrap();
+    let message = bento_domain::Message {
+        title: None,
+        text: "-5% today".into(),
+        url: Some("https://x.com/a/status/1".into()),
+        image_url: None,
+        author: None,
+        source_name: "X".into(),
+    };
+
+    let argv = publisher.command_for(&message, Some(std::path::Path::new("/tmp/i.jpg")));
+
+    assert_eq!(
+        argv,
+        [
+            "twitter",
+            "post",
+            "--json",
+            "-i",
+            "/tmp/i.jpg",
+            "--",
+            "-5% today\n\nhttps://x.com/a/status/1"
+        ]
+    );
+}

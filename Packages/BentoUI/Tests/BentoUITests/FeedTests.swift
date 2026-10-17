@@ -286,6 +286,17 @@ struct DestinationSettingsTests {
     #expect(store.calls == ["addDestination(telegramAccount,Telegram (as you),me)"])
   }
 
+  @Test func xNeedsNothingButItsSignIn() async {
+    let collector = FakeCollector(plugins: [])
+    let model = model(collector)
+    model.newDestinationKind = .x
+    #expect(model.canAddDestination)
+
+    await model.addDestination()
+
+    #expect(collector.calls.isEmpty && store.calls == ["addDestination(x,X (as you),-)"])
+  }
+
   @Test func onlyTheCollectorMacSetsUpDestinations() async {
     let collector = FakeCollector(plugins: [])
     collector.isThisMacCollector = false

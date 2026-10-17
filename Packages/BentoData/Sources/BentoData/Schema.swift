@@ -179,6 +179,7 @@ public nonisolated struct Destination: Hashable, Identifiable, Sendable {
     case discord
     case telegramBot
     case telegramAccount
+    case x
   }
 }
 

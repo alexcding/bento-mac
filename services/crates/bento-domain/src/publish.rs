@@ -35,6 +35,8 @@ pub enum DestinationKind {
     TelegramBot,
     /// Posts as the user's own Telegram account, through the Telegram plugin.
     TelegramAccount,
+    /// Posts as the user's X account, through the X plugin.
+    X,
     /// A kind this daemon cannot post to yet. Its destinations are ignored.
     #[serde(other)]
     Unsupported,
@@ -48,6 +50,7 @@ impl DestinationKind {
         match self {
             Self::TelegramBot => Some("telegram_bot"),
             Self::TelegramAccount => Some("telegram_account"),
+            Self::X => Some("x"),
             Self::Discord | Self::Unsupported => None,
         }
     }
@@ -119,6 +122,91 @@ impl Message {
     pub fn text_within(&self, max: usize) -> String {
         truncate_chars(&self.text, max)
     }
+
+    /// A short post: the title (or the text) and the link, cut to fit `limits`.
+    #[must_use]
+    pub fn short_text(&self, limits: &TextLimits) -> String {
+        let body = self.title.as_deref().unwrap_or(&self.text).trim();
+        let link = self
+            .url
+            .as_deref()
+            .map(str::trim)
+            .filter(|url| !url.is_empty());
+        let reserved = link.map_or(0, |_| limits.url_chars + 2);
+        let budget = limits.max_chars.saturating_sub(reserved);
+        let mut body = body.to_owned();
+        if limits.weight(&body) > budget {
+            let ellipsis = limits.weight("…");
+            let mut cut = String::new();
+            let mut used = 0;
+            for word in body.split_inclusive(char::is_whitespace) {
+                let weight = limits.weight(word);
+                if used + weight + ellipsis > budget {
+                    // A word longer than what is left is cut by characters.
+                    for c in word.chars() {
+                        let weight = limits.weight(&c.to_string());
+                        if used + weight + ellipsis > budget || c.is_whitespace() {
+                            break;
+                        }
+                        cut.push(c);
+                        used += weight;
+                    }
+                    break;
+                }
+                cut.push_str(word);
+                used += weight;
+            }
+            body = format!("{}…", cut.trim_end());
+        }
+        match link {
+            Some(link) if body.is_empty() => link.to_owned(),
+            Some(link) => format!("{body}\n\n{link}"),
+            None => body,
+        }
+    }
+}
+
+/// How a platform counts a short post's length, as X does: `max_chars` in all, each link counting
+/// `url_chars`, and characters outside Latin and common punctuation (CJK, emoji) counting
+/// `wide_char_weight`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextLimits {
+    pub max_chars: usize,
+    #[serde(default = "default_url_chars")]
+    pub url_chars: usize,
+    #[serde(default = "default_wide_char_weight")]
+    pub wide_char_weight: usize,
+}
+
+fn default_url_chars() -> usize {
+    23
+}
+
+fn default_wide_char_weight() -> usize {
+    1
+}
+
+impl TextLimits {
+    /// The counted length of `text`: links count `url_chars`.
+    #[must_use]
+    pub fn weight(&self, text: &str) -> usize {
+        text.split_inclusive(char::is_whitespace)
+            .map(|word| {
+                let trimmed = word.trim_end();
+                if trimmed.starts_with("https://") || trimmed.starts_with("http://") {
+                    self.url_chars + (word.len() - trimmed.len())
+                } else {
+                    word.chars().map(|c| self.char_weight(c)).sum()
+                }
+            })
+            .sum()
+    }
+
+    fn char_weight(&self, c: char) -> usize {
+        // twitter-text's light ranges: Latin through Georgian, and general punctuation.
+        let light = matches!(u32::from(c), 0..=0x10FF | 0x2000..=0x200D | 0x2010..=0x201F | 0x2032..=0x2037);
+        if light { 1 } else { self.wide_char_weight }
+    }
 }
 
 #[cfg(test)]
@@ -185,8 +273,36 @@ mod tests {
     }
 
     #[test]
+    fn short_text_fits_x_counting() {
+        let limits = TextLimits {
+            max_chars: 280,
+            url_chars: 23,
+            wide_char_weight: 2,
+        };
+        let mut post = Message::new(&item(&"word ".repeat(100)), None, "X");
+        let text = post.short_text(&limits);
+        assert!(limits.weight(&text) <= 280, "{}", limits.weight(&text));
+        assert!(text.ends_with("…\n\nhttps://x.com/a/1"), "{text}");
+
+        post.title = Some("中".repeat(200));
+        let text = post.short_text(&limits);
+        assert!(limits.weight(&text) <= 280);
+        assert_eq!(
+            text.chars().filter(|c| *c == '中').count(),
+            (280 - 25 - 2) / 2
+        );
+
+        post.title = Some("Short".into());
+        assert_eq!(post.short_text(&limits), "Short\n\nhttps://x.com/a/1");
+        assert_eq!(
+            limits.weight("see https://example.com/very/long/path"),
+            4 + 23
+        );
+    }
+
+    #[test]
     fn unknown_kinds_parse_as_unsupported() {
-        let kind: DestinationKind = serde_json::from_str(r#""x""#).unwrap();
+        let kind: DestinationKind = serde_json::from_str(r#""mastodon""#).unwrap();
         assert_eq!(kind, DestinationKind::Unsupported);
         let kind: DestinationKind = serde_json::from_str(r#""telegram_account""#).unwrap();
         assert_eq!(kind, DestinationKind::TelegramAccount);

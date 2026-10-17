@@ -68,7 +68,7 @@ struct ChannelSettingsView: View {
     } footer: {
       Text(
         model.canManageDestinations
-          ? "New items from this channel's sources are posted here. Webhook URLs and bot tokens stay in this Mac's Keychain; posting as you uses the Telegram sign-in in Settings → Plugins."
+          ? "New items from this channel's sources are posted here. Webhook URLs and bot tokens stay in this Mac's Keychain; posting as you uses the Telegram or X sign-in in Settings → Plugins."
           : "Destinations are set up on the collector Mac, which keeps their webhook URLs and bot tokens in its Keychain."
       )
     }

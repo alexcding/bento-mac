@@ -1,6 +1,6 @@
 //! Runs a CLI source: pick the command for the query, run it with a timeout, map its output.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
@@ -117,125 +117,135 @@ impl CliSourceFetcher {
             .flat_map(|doc| self.mapping.map(doc))
             .collect()
     }
+}
 
-    fn environment(&self) -> Result<Vec<(String, String)>, PortError> {
-        let mut env = vec![("PATH".to_owned(), search_path())];
-        for (name, template) in &self.cli.env {
-            match template
-                .strip_prefix("{secret.")
-                .and_then(|rest| rest.strip_suffix('}'))
-            {
-                Some(key) => {
-                    if let Some(value) = self.secrets.secret(&self.plugin_id, key)? {
-                        env.push((name.clone(), value));
-                    }
+/// `PATH` plus the plugin's `env`, with `{secret.<key>}` values filled from the Keychain. A
+/// variable whose secret is not set is left out.
+pub(crate) fn environment(
+    plugin_id: &str,
+    templates: &BTreeMap<String, String>,
+    secrets: &dyn SecretStore,
+) -> Result<Vec<(String, String)>, PortError> {
+    let mut env = vec![("PATH".to_owned(), search_path())];
+    for (name, template) in templates {
+        match template
+            .strip_prefix("{secret.")
+            .and_then(|rest| rest.strip_suffix('}'))
+        {
+            Some(key) => {
+                if let Some(value) = secrets.secret(plugin_id, key)? {
+                    env.push((name.clone(), value));
                 }
-                None => env.push((name.clone(), template.clone())),
             }
+            None => env.push((name.clone(), template.clone())),
         }
-        Ok(env)
     }
+    Ok(env)
+}
 
-    /// Runs the command and returns its stdout. Reading stops at `MAX_OUTPUT_BYTES` or at the
-    /// timeout; either way the child is killed, and the output read so far is used only if the
-    /// plugin allows partial output (otherwise it is an error).
-    async fn run(&self, argv: &[String], env: Vec<(String, String)>) -> Result<String, FetchError> {
-        let program = argv[0].clone();
-        let mut child = Command::new(&program)
-            .args(&argv[1..])
-            .envs(env)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|source| match source.kind() {
-                std::io::ErrorKind::NotFound => FetchError::NotInstalled {
-                    program: program.clone(),
-                },
-                _ => FetchError::Spawn {
-                    program: program.clone(),
-                    source,
-                },
-            })?;
-        let mut stdout = child.stdout.take().expect("piped");
-        let stderr = child.stderr.take().expect("piped");
-        let stderr_task = tokio::spawn(drain_stderr(stderr));
-        let seconds = self.cli.timeout_seconds;
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(seconds);
-        let spawn_error = |source| FetchError::Spawn {
-            program: program.clone(),
-            source,
-        };
+/// Runs a command and returns its stdout. Reading stops at `MAX_OUTPUT_BYTES` or at the
+/// timeout; either way the child is killed, and the output read so far is used only if
+/// `partial_output_ok` (otherwise it is an error).
+pub(crate) async fn run_command(
+    argv: &[String],
+    env: Vec<(String, String)>,
+    seconds: u64,
+    partial_output_ok: bool,
+) -> Result<String, FetchError> {
+    let program = argv[0].clone();
+    let mut child = Command::new(&program)
+        .args(&argv[1..])
+        .envs(env)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|source| match source.kind() {
+            std::io::ErrorKind::NotFound => FetchError::NotInstalled {
+                program: program.clone(),
+            },
+            _ => FetchError::Spawn {
+                program: program.clone(),
+                source,
+            },
+        })?;
+    let mut stdout = child.stdout.take().expect("piped");
+    let stderr = child.stderr.take().expect("piped");
+    let stderr_task = tokio::spawn(drain_stderr(stderr));
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(seconds);
+    let spawn_error = |source| FetchError::Spawn {
+        program: program.clone(),
+        source,
+    };
 
-        let mut out = Vec::new();
-        let mut chunk = vec![0_u8; 64 * 1024];
-        let mut ended = Ended::Eof;
-        loop {
-            match tokio::time::timeout_at(deadline, stdout.read(&mut chunk)).await {
-                Err(_) => {
-                    ended = Ended::Timeout;
+    let mut out = Vec::new();
+    let mut chunk = vec![0_u8; 64 * 1024];
+    let mut ended = Ended::Eof;
+    loop {
+        match tokio::time::timeout_at(deadline, stdout.read(&mut chunk)).await {
+            Err(_) => {
+                ended = Ended::Timeout;
+                break;
+            }
+            Ok(Ok(0)) => break,
+            Ok(Ok(n)) => {
+                out.extend_from_slice(&chunk[..n]);
+                if out.len() >= MAX_OUTPUT_BYTES {
+                    out.truncate(MAX_OUTPUT_BYTES);
+                    ended = Ended::Truncated;
                     break;
                 }
-                Ok(Ok(0)) => break,
-                Ok(Ok(n)) => {
-                    out.extend_from_slice(&chunk[..n]);
-                    if out.len() >= MAX_OUTPUT_BYTES {
-                        out.truncate(MAX_OUTPUT_BYTES);
-                        ended = Ended::Truncated;
-                        break;
-                    }
-                }
-                Ok(Err(source)) => return Err(spawn_error(source)),
             }
+            Ok(Err(source)) => return Err(spawn_error(source)),
         }
-        let mut status = None;
-        if ended == Ended::Eof {
-            match tokio::time::timeout_at(deadline, child.wait()).await {
-                Ok(exit) => status = Some(exit.map_err(spawn_error)?),
-                Err(_) => ended = Ended::Timeout,
-            }
-        }
-        if status.is_none() {
-            let _ = child.kill().await;
-        }
-        let err = tokio::time::timeout(Duration::from_secs(1), stderr_task)
-            .await
-            .ok()
-            .and_then(Result::ok)
-            .unwrap_or_default();
-        let partial_ok = self.cli.partial_output_ok && !out.is_empty();
-        match (ended, status) {
-            (Ended::Timeout, _) if !partial_ok => {
-                return Err(FetchError::Timeout { program, seconds });
-            }
-            (Ended::Truncated, _) if !partial_ok => {
-                return Err(FetchError::TooLarge {
-                    program,
-                    limit: MAX_OUTPUT_BYTES,
-                });
-            }
-            (_, Some(status)) if !status.success() && !partial_ok => {
-                let stderr = String::from_utf8_lossy(&err);
-                let tail: String = stderr
-                    .trim()
-                    .chars()
-                    .rev()
-                    .take(800)
-                    .collect::<Vec<_>>()
-                    .into_iter()
-                    .rev()
-                    .collect();
-                return Err(FetchError::Failed {
-                    program,
-                    status: status.to_string(),
-                    stderr: tail,
-                });
-            }
-            _ => {}
-        }
-        Ok(String::from_utf8_lossy(&out).into_owned())
     }
+    let mut status = None;
+    if ended == Ended::Eof {
+        match tokio::time::timeout_at(deadline, child.wait()).await {
+            Ok(exit) => status = Some(exit.map_err(spawn_error)?),
+            Err(_) => ended = Ended::Timeout,
+        }
+    }
+    if status.is_none() {
+        let _ = child.kill().await;
+    }
+    let err = tokio::time::timeout(Duration::from_secs(1), stderr_task)
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .unwrap_or_default();
+    let partial_ok = partial_output_ok && !out.is_empty();
+    match (ended, status) {
+        (Ended::Timeout, _) if !partial_ok => {
+            return Err(FetchError::Timeout { program, seconds });
+        }
+        (Ended::Truncated, _) if !partial_ok => {
+            return Err(FetchError::TooLarge {
+                program,
+                limit: MAX_OUTPUT_BYTES,
+            });
+        }
+        (_, Some(status)) if !status.success() && !partial_ok => {
+            let stderr = String::from_utf8_lossy(&err);
+            let tail: String = stderr
+                .trim()
+                .chars()
+                .rev()
+                .take(800)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+            return Err(FetchError::Failed {
+                program,
+                status: status.to_string(),
+                stderr: tail,
+            });
+        }
+        _ => {}
+    }
+    Ok(String::from_utf8_lossy(&out).into_owned())
 }
 
 #[async_trait]
@@ -252,10 +262,15 @@ impl SourceFetcher for CliSourceFetcher {
         let argv = self
             .command_for(&source.query, limit)
             .ok_or_else(|| PortError::new(FetchError::NoCommand(source.query.clone())))?;
-        let stdout = self
-            .run(&argv, self.environment()?)
-            .await
-            .map_err(PortError::new)?;
+        let env = environment(&self.plugin_id, &self.cli.env, &*self.secrets)?;
+        let stdout = run_command(
+            &argv,
+            env,
+            self.cli.timeout_seconds,
+            self.cli.partial_output_ok,
+        )
+        .await
+        .map_err(PortError::new)?;
         Ok(self.map_output(&stdout))
     }
 }

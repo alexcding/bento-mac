@@ -193,6 +193,74 @@
           }
         }
       }
+    },
+    "publish": {
+      "description": "How the plugin posts as the user (needs the `publisher` capability).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cli"
+      ],
+      "properties": {
+        "cli": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "args",
+            "text"
+          ],
+          "properties": {
+            "args": {
+              "description": "Command and arguments; `{text}` is the post.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1
+            },
+            "image_args": {
+              "description": "Added when the post has an image, before a `--` argument if there is one; `{image}` is a local file.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "env": {
+              "description": "Extra environment; values may use `{secret.<key>}`.",
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "text": {
+              "description": "How the platform counts a post's length.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "max_chars"
+              ],
+              "properties": {
+                "max_chars": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "url_chars": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "wide_char_weight": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "timeout_seconds": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      }
     }
   }
 }

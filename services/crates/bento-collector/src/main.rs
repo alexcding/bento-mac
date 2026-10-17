@@ -269,6 +269,9 @@ async fn run(
         store.clone(),
         secrets.clone(),
         telegram_account,
+        registry
+            .plugin("x")
+            .and_then(|plugin| plugin.publisher.clone()),
         delivery_stopped,
     );
     let shutdown = shutdown_signal();

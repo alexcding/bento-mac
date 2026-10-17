@@ -10,6 +10,7 @@ use crate::fetcher::{CliSourceFetcher, compile_routes};
 use crate::manifest::{Capability, Manifest, PROTOCOL_VERSION};
 use crate::mapping::Mapping;
 use crate::protocol::ProtocolPlugin;
+use crate::publisher::CliPublisher;
 
 /// IDs of sources built into the daemon; plugins cannot use them.
 pub const RESERVED_IDS: &[&str] = &["rss"];
@@ -22,6 +23,8 @@ pub struct LoadedPlugin {
     pub fetcher: Option<Arc<CliSourceFetcher>>,
     /// For protocol plugins (sources and interactive login).
     pub protocol: Option<Arc<ProtocolPlugin>>,
+    /// For plugins that post by running a command.
+    pub publisher: Option<Arc<CliPublisher>>,
 }
 
 /// A plugin folder that could not be loaded, shown to the user instead of silently ignored.
@@ -161,11 +164,28 @@ fn load_plugin(folder: &Path, secrets: &Arc<dyn SecretStore>) -> Result<LoadedPl
         }
         _ => {}
     }
+    let publisher = match (
+        &manifest.publish,
+        manifest.capabilities.contains(&Capability::Publisher),
+    ) {
+        (Some(spec), true) => {
+            if spec.cli.args.is_empty() {
+                return Err("plugin.json: `publish.cli.args` is empty".into());
+            }
+            Some(Arc::new(CliPublisher::new(
+                &manifest,
+                spec.cli.clone(),
+                secrets.clone(),
+            )))
+        }
+        _ => None,
+    };
     Ok(LoadedPlugin {
         manifest,
         directory: folder.to_owned(),
         fetcher,
         protocol,
+        publisher,
     })
 }
 

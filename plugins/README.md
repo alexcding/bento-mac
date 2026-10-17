@@ -15,12 +15,12 @@ Each folder is one plugin. The daemon loads bundled plugins from the app (`Conte
 
 | Plugin | Kind | Notes |
 |---|---|---|
-| `x` | CLI (`twitter-cli`) | timeline, `@user`, post links, search; cookies in Settings |
+| `x` | CLI (`twitter-cli`) | timeline, `@user`, post links, search; posts as you; cookies in Settings |
 | `reddit` | CLI (`rdt-cli`) | popular, all, `r/sub`, threads, search |
 | `youtube` | CLI (`yt-dlp`) | channel, playlist or video URLs, search |
 | `xiaohongshu` | CLI (`xhs`) | trending, search |
 | `bilibili` | protocol | following feed; sign in with a QR code |
-| `telegram` | protocol | public channels via `t.me/s`; no login (private channels come with account login) |
+| `telegram` | protocol | public channels via `t.me/s` with no login; after signing in with your account, private channels (`t.me/c/<id>`) and posting as you |
 
 ## Source commands
 
@@ -31,6 +31,15 @@ and they are stored in the Keychain. A secret that is not set leaves its variabl
 
 `output` is `json` (one document, falling back to JSON Lines), `json-lines`, or `text-lines` (each line
 with a URL becomes `{"text", "url"}`).
+
+## Posting commands
+
+A CLI plugin with the `publisher` capability posts as the user through `publish.cli`: `args` may use
+`{text}` (the post, cut to fit `text`: `max_chars`, with links counting `url_chars` and wide characters
+such as CJK counting `wide_char_weight`), and `image_args` with `{image}` (a downloaded local file) are
+added before a `--` argument. The command's error output decides what happens: a rate limit waits, an
+expired login or invalid post is not retried, "duplicate" counts as already posted, and a timeout is
+never retried.
 
 ## Status
 

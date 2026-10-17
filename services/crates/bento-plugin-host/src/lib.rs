@@ -8,10 +8,12 @@ pub mod manifest;
 pub mod mapping;
 mod output;
 pub mod protocol;
+mod publisher;
 mod registry;
 pub mod requirements;
 
 pub use fetcher::{CliSourceFetcher, FetchError};
+pub use publisher::CliPublisher;
 pub use registry::{LoadError, LoadedPlugin, PluginRegistry};
 
 pub(crate) use fetcher::search_path;

@@ -16,4 +16,4 @@ pub use config::{CollectorConfig, SourceConfig};
 pub use item::{
     Author, FeedItem, Media, MediaKind, NormalizedItem, RawItem, Reference, ReferenceKind,
 };
-pub use publish::{DESTINATION_SECRETS, DestinationConfig, DestinationKind, Message};
+pub use publish::{DESTINATION_SECRETS, DestinationConfig, DestinationKind, Message, TextLimits};

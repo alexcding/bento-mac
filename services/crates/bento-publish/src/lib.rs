@@ -1,5 +1,5 @@
-//! Posts messages to Discord webhooks, Telegram bots and, through the Telegram plugin, the user's
-//! own Telegram account. The webhook URL or bot token comes from the Keychain
+//! Posts messages to Discord webhooks, Telegram bots and, through plugins, the user's own Telegram
+//! and X accounts. The webhook URL or bot token comes from the Keychain
 //! (`DESTINATION_SECRETS`, keyed by destination ID) and never appears in errors.
 
 use std::sync::Arc;
@@ -9,11 +9,14 @@ use async_trait::async_trait;
 use bento_app::{PublishError, Publisher, SecretStore};
 use bento_domain::html::truncate_chars;
 use bento_domain::{DESTINATION_SECRETS, DestinationConfig, DestinationKind, Message};
+use bento_plugin_host::CliPublisher;
 use bento_plugin_host::protocol::{ProtocolError, ProtocolPlugin, REJECTED, UNCERTAIN};
 use reqwest::{Response, StatusCode};
 use serde_json::{Value, json};
 
 pub const TELEGRAM_API: &str = "https://api.telegram.org";
+/// Largest image downloaded for a plugin to attach (X accepts up to 5 MB).
+const MAX_IMAGE_BYTES: usize = 5 * 1024 * 1024;
 /// Wait used when a 429 says nothing about how long.
 const DEFAULT_RETRY_AFTER: Duration = Duration::from_secs(60);
 
@@ -23,6 +26,8 @@ pub struct Publishers {
     telegram_api: String,
     /// The Telegram plugin, which posts as the signed-in account.
     telegram_account: Option<Arc<ProtocolPlugin>>,
+    /// The X plugin's publish command.
+    x: Option<Arc<CliPublisher>>,
 }
 
 impl Publishers {
@@ -40,7 +45,14 @@ impl Publishers {
             secrets,
             telegram_api: telegram_api.trim_end_matches('/').to_owned(),
             telegram_account: None,
+            x: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_x(mut self, publisher: Option<Arc<CliPublisher>>) -> Self {
+        self.x = publisher;
+        self
     }
 
     #[must_use]
@@ -140,8 +152,12 @@ impl Publisher for Publishers {
         destination: &DestinationConfig,
         message: &Message,
     ) -> Result<(), PublishError> {
-        if destination.kind == DestinationKind::TelegramAccount {
-            return self.telegram_account(destination, message).await;
+        match destination.kind {
+            DestinationKind::TelegramAccount => {
+                return self.telegram_account(destination, message).await;
+            }
+            DestinationKind::X => return self.x(message).await,
+            _ => {}
         }
         let secret = self
             .secrets
@@ -165,14 +181,72 @@ impl Publisher for Publishers {
                     .ok_or_else(|| PublishError::Rejected("no chat set".into()))?;
                 self.telegram(token.trim(), chat_id, message).await
             }
-            DestinationKind::TelegramAccount | DestinationKind::Unsupported => Err(
-                PublishError::Rejected("this destination kind is not supported".into()),
-            ),
+            DestinationKind::TelegramAccount
+            | DestinationKind::X
+            | DestinationKind::Unsupported => Err(PublishError::Rejected(
+                "this destination kind is not supported".into(),
+            )),
         }
     }
 }
 
 impl Publishers {
+    async fn x(&self, message: &Message) -> Result<(), PublishError> {
+        let publisher = self
+            .x
+            .as_ref()
+            .ok_or_else(|| PublishError::Rejected("the X plugin is not installed".into()))?;
+        // The command needs a local file; without one the post goes out as text.
+        let image = match &message.image_url {
+            Some(url) => self.download_image(url).await,
+            None => None,
+        };
+        publisher
+            .publish(message, image.as_ref().map(tempfile::NamedTempFile::path))
+            .await
+    }
+
+    /// Downloads an image to a temporary file, or `None` if it cannot be used.
+    async fn download_image(&self, url: &str) -> Option<tempfile::NamedTempFile> {
+        let response = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .ok()?
+            .error_for_status()
+            .ok()?;
+        let extension = match response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)?
+            .to_str()
+            .ok()?
+        {
+            "image/jpeg" | "image/jpg" => ".jpg",
+            "image/png" => ".png",
+            "image/webp" => ".webp",
+            "image/gif" => ".gif",
+            _ => return None,
+        };
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_IMAGE_BYTES as u64)
+        {
+            return None;
+        }
+        let bytes = response.bytes().await.ok()?;
+        if bytes.len() > MAX_IMAGE_BYTES {
+            return None;
+        }
+        let mut file = tempfile::Builder::new()
+            .prefix("bento-image")
+            .suffix(extension)
+            .tempfile()
+            .ok()?;
+        std::io::Write::write_all(&mut file, &bytes).ok()?;
+        Some(file)
+    }
+
     async fn telegram_account(
         &self,
         destination: &DestinationConfig,
@@ -492,5 +566,46 @@ mod tests {
         let visible =
             visible.split("<a href").next().unwrap().chars().count() + "News · Ann".chars().count();
         assert!(visible <= 1024, "{visible}");
+    }
+
+    #[tokio::test]
+    async fn downloads_only_usable_images() {
+        let server = MockServer::start().await;
+        Mock::given(path("/a.png"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "image/png")
+                    .set_body_bytes(vec![1, 2, 3]),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(path("/page"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/html")
+                    .set_body_string("<html>"),
+            )
+            .mount(&server)
+            .await;
+        let publishers = publishers(&server, None, Duration::from_secs(5));
+
+        let image = publishers
+            .download_image(&format!("{}/a.png", server.uri()))
+            .await
+            .unwrap();
+        assert!(image.path().extension().is_some_and(|e| e == "png"));
+        assert_eq!(std::fs::read(image.path()).unwrap(), [1, 2, 3]);
+        assert!(
+            publishers
+                .download_image(&format!("{}/page", server.uri()))
+                .await
+                .is_none()
+        );
+        assert!(
+            publishers
+                .download_image(&format!("{}/missing", server.uri()))
+                .await
+                .is_none()
+        );
     }
 }

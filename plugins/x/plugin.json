@@ -4,9 +4,10 @@
   "version": "0.1.0",
   "protocol": 1,
   "capabilities": [
-    "source"
+    "source",
+    "publisher"
   ],
-  "description": "Posts from your X timeline, a user, a single post or a search, through twitter-cli.",
+  "description": "Posts from your X timeline, a user, a single post or a search, and posting as you, through twitter-cli.",
   "requires": [
     {
       "name": "twitter-cli",
@@ -118,6 +119,31 @@
         "TWITTER_CT0": "{secret.ct0}"
       },
       "output": "json"
+    }
+  },
+  "publish": {
+    "cli": {
+      "args": [
+        "twitter",
+        "post",
+        "--json",
+        "--",
+        "{text}"
+      ],
+      "image_args": [
+        "-i",
+        "{image}"
+      ],
+      "env": {
+        "TWITTER_AUTH_TOKEN": "{secret.auth_token}",
+        "TWITTER_CT0": "{secret.ct0}"
+      },
+      "text": {
+        "max_chars": 280,
+        "url_chars": 23,
+        "wide_char_weight": 2
+      },
+      "timeout_seconds": 90
     }
   }
 }

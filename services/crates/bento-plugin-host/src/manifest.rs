@@ -23,6 +23,35 @@ pub struct Manifest {
     pub auth: Auth,
     #[serde(default)]
     pub source: Option<SourceSpec>,
+    /// How the plugin posts as the user (the `publisher` capability).
+    #[serde(default)]
+    pub publish: Option<PublishSpec>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PublishSpec {
+    pub cli: CliPublish,
+}
+
+/// Posts by running a command: `args` may use `{text}`; with an image, `image_args` (using
+/// `{image}`, a local file) are added before the `--` argument, or at the end without one.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CliPublish {
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub image_args: Vec<String>,
+    /// As for sources: values may use `{secret.<key>}`.
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    pub text: bento_domain::TextLimits,
+    #[serde(default = "default_publish_timeout_seconds")]
+    pub timeout_seconds: u64,
+}
+
+fn default_publish_timeout_seconds() -> u64 {
+    60
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

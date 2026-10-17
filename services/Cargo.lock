@@ -334,6 +334,7 @@ dependencies = [
  "bento-plugin-host",
  "reqwest",
  "serde_json",
+ "tempfile",
  "tokio",
  "uuid",
  "wiremock",

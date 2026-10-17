@@ -76,7 +76,12 @@ public final class ChannelSettingsViewModel: Identifiable {
         secretStatus[plugin.id] = status
       }
     }
+    // A plugin that is no longer offered (signed out meanwhile) must not stay selected.
+    if !availablePlugins.contains(where: { $0.id == newSourcePluginID }) {
+      newSourcePluginID = availablePlugins.first?.id ?? "rss"
+    }
   }
+
 
   /// Source types that can be added, or RSS without a collector. On the collector Mac, which does
   /// the fetching, only plugins that are ready (programs installed, sign-in set if needed); another

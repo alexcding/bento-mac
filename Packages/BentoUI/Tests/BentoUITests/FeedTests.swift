@@ -328,9 +328,11 @@ struct DestinationSettingsTests {
     let youtube = plugin("youtube", manifest: #"{"id":"youtube","capabilities":["source"],"source":{}}"#)
     let collector = FakeCollector(plugins: [x, youtube])
     let model = model(collector)
+    model.newSourcePluginID = "x"
 
     await model.refreshSignIns()
 
+    #expect(model.newSourcePluginID == "youtube", "X is not offered, so it is not left selected")
     #expect(model.availablePlugins.map(\.id) == ["youtube"], "X still misses ct0")
     #expect(model.pluginsNeedingSetup.map(\.id) == ["x"])
 

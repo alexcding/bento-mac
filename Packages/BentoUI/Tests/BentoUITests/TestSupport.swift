@@ -1,4 +1,5 @@
 @testable import BentoData
+import Dependencies
 import Foundation
 import SQLiteData
 
@@ -49,7 +50,8 @@ final class FakeLibraryStore: LibraryStoring {
 extension AppContainer {
   @MainActor
   static func test(store: FakeLibraryStore) -> AppContainer {
-    .native(store: store, statuses: NoSourceStatus())
+    @Dependency(\.defaultDatabase) var database
+    return .native(store: store, docs: NativeDocsStore(database: database), statuses: NoSourceStatus())
   }
 }
 

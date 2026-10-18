@@ -4,4 +4,6 @@ public enum Action {
   case sidebar(SidebarViewModel.Action)
   case feed(FeedViewModel.Action)
   case channelSettings(ChannelSettingsViewModel.Action)
+  case docList(DocListViewModel.Action)
+  case docEditor(DocEditorViewModel.Action)
 }

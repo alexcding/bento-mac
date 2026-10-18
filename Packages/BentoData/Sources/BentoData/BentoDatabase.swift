@@ -241,6 +241,95 @@ public enum BentoDatabase {
       try #sql(#"ALTER TABLE "appSettings" ADD COLUMN "collectorDeviceID" TEXT"#).execute(db)
       try #sql(#"ALTER TABLE "appSettings" ADD COLUMN "collectorDeviceName" TEXT"#).execute(db)
     }
+    migrator.registerMigration("Add docs") { db in
+      try #sql(
+        """
+        CREATE TABLE "docFolders" (
+          "id" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE DEFAULT (uuid()),
+          "parentID" TEXT,
+          "name" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT '',
+          "position" REAL NOT NULL ON CONFLICT REPLACE DEFAULT 0,
+          "createdAt" TEXT NOT NULL
+        ) STRICT
+        """
+      )
+      .execute(db)
+      try #sql(
+        """
+        CREATE TABLE "docs" (
+          "id" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE DEFAULT (uuid()),
+          "folderID" TEXT REFERENCES "docFolders"("id") ON DELETE CASCADE,
+          "parentBlockID" TEXT,
+          "dailyNoteDay" TEXT,
+          "title" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT '',
+          "isStarred" INTEGER NOT NULL ON CONFLICT REPLACE DEFAULT 0,
+          "createdAt" TEXT NOT NULL,
+          "updatedAt" TEXT NOT NULL
+        ) STRICT
+        """
+      )
+      .execute(db)
+      try #sql(
+        """
+        CREATE TABLE "docBlocks" (
+          "id" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE DEFAULT (uuid()),
+          "docID" TEXT NOT NULL REFERENCES "docs"("id") ON DELETE CASCADE,
+          "kind" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT 'text',
+          "text" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT '',
+          "isChecked" INTEGER NOT NULL ON CONFLICT REPLACE DEFAULT 0,
+          "isCollapsed" INTEGER NOT NULL ON CONFLICT REPLACE DEFAULT 0,
+          "indent" INTEGER NOT NULL ON CONFLICT REPLACE DEFAULT 0,
+          "alignment" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT 'leading',
+          "decoration" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT 'none',
+          "color" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT 'standard',
+          "font" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT 'system',
+          "language" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT '',
+          "lineWeight" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT 'regular',
+          "position" REAL NOT NULL ON CONFLICT REPLACE DEFAULT 0
+        ) STRICT
+        """
+      )
+      .execute(db)
+      try #sql(
+        """
+        CREATE TABLE "docFiles" (
+          "blockID" TEXT PRIMARY KEY NOT NULL REFERENCES "docBlocks"("id") ON DELETE CASCADE,
+          "name" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT '',
+          "contentType" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT '',
+          "data" BLOB NOT NULL
+        ) STRICT
+        """
+      )
+      .execute(db)
+      try #sql(
+        """
+        CREATE TABLE "docLinkPreviews" (
+          "blockID" TEXT PRIMARY KEY NOT NULL REFERENCES "docBlocks"("id") ON DELETE CASCADE,
+          "url" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT '',
+          "title" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT '',
+          "summary" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT '',
+          "siteName" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT '',
+          "image" BLOB NOT NULL ON CONFLICT REPLACE DEFAULT X'',
+          "fetchedAt" TEXT NOT NULL
+        ) STRICT
+        """
+      )
+      .execute(db)
+      try #sql(
+        """
+        CREATE TABLE "docCovers" (
+          "docID" TEXT PRIMARY KEY NOT NULL REFERENCES "docs"("id") ON DELETE CASCADE,
+          "image" BLOB NOT NULL
+        ) STRICT
+        """
+      )
+      .execute(db)
+      try #sql(#"CREATE INDEX "index_docFolders_on_parentID" ON "docFolders"("parentID")"#).execute(db)
+      try #sql(#"CREATE INDEX "index_docs_on_folderID" ON "docs"("folderID")"#).execute(db)
+      try #sql(#"CREATE INDEX "index_docs_on_parentBlockID" ON "docs"("parentBlockID")"#).execute(db)
+      try #sql(#"CREATE INDEX "index_docs_on_updatedAt" ON "docs"("updatedAt")"#).execute(db)
+      try #sql(#"CREATE INDEX "index_docBlocks_on_docID_position" ON "docBlocks"("docID", "position")"#).execute(db)
+    }
     return migrator
   }
 }
@@ -273,6 +362,12 @@ extension DependencyValues {
       AiProfile.self,
       AiTask.self,
       AppSettings.self,
+      DocFolder.self,
+      Doc.self,
+      DocBlock.self,
+      DocFile.self,
+      DocLinkPreview.self,
+      DocCover.self,
       containerIdentifier: iCloudContainer
     )
   }

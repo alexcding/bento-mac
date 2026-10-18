@@ -15,11 +15,15 @@ public final class ItemDetailViewModel: Identifiable {
   @ObservationIgnored @FetchOne var bookmark: Bookmark?
   @ObservationIgnored @FetchOne var bookmarkDetail: BookmarkDetail?
   @ObservationIgnored @FetchOne var reference: FeedItem?
+  /// The doc this item was saved to from here.
+  private(set) var savedDocID: Doc.ID?
   @ObservationIgnored private let store: any LibraryStoring
+  @ObservationIgnored private let docs: any DocsStoring
 
-  init(itemID: FeedItem.ID, store: any LibraryStoring) {
+  init(itemID: FeedItem.ID, store: any LibraryStoring, docs: any DocsStoring) {
     self.itemID = itemID
     self.store = store
+    self.docs = docs
   }
 
   var item: FeedItem? { feedItem ?? bookmark?.asFeedItem }
@@ -43,6 +47,18 @@ public final class ItemDetailViewModel: Identifiable {
       }
       try store.setRead([itemID], true)
     }
+  }
+
+  /// Saves the item as a doc to read and annotate later: its link, summary, text and article.
+  func saveToDocs() {
+    guard let item, savedDocID == nil else { return }
+    let title = item.translatedTitle ?? item.title ?? String(item.text.prefix { $0 != "\n" }.prefix(80))
+    var blocks: [DocContent] = []
+    if let url = item.url { blocks.append(DocContent(kind: .link, text: url)) }
+    if let summary = item.summary, !summary.isEmpty { blocks.append(DocContent(text: summary, decoration: .focus)) }
+    blocks += DocMarkdown.blocks(from: item.text)
+    if let markdown = detailMarkdown { blocks += [DocContent(kind: .divider)] + DocMarkdown.blocks(from: markdown) }
+    savedDocID = withErrorReporting { try docs.addDoc(folderID: nil, title: title, blocks: blocks) }
   }
 
   func toggleBookmark() {

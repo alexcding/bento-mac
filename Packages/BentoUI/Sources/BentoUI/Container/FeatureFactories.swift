@@ -13,6 +13,16 @@ public protocol FeedFeatureFactory {
 }
 
 @MainActor
+public protocol DocListFeatureFactory {
+  func makeDocList(destination: SidebarDestination) -> DocListViewModel
+}
+
+@MainActor
+public protocol DocEditorFeatureFactory {
+  func makeDocEditor(docID: Doc.ID) -> DocEditorViewModel
+}
+
+@MainActor
 public protocol ItemDetailFeatureFactory {
   func makeItemDetail(itemID: FeedItem.ID) -> ItemDetailViewModel
 }
@@ -39,7 +49,23 @@ public protocol SettingsFeatureFactory {
 
 public struct NativeSidebarFeatureFactory: SidebarFeatureFactory {
   let store: any LibraryStoring
-  public func makeSidebar() -> SidebarViewModel { SidebarViewModel(store: store) }
+  let docs: any DocsStoring
+  public func makeSidebar() -> SidebarViewModel { SidebarViewModel(store: store, docs: docs) }
+}
+
+public struct NativeDocListFeatureFactory: DocListFeatureFactory {
+  let docs: any DocsStoring
+  public func makeDocList(destination: SidebarDestination) -> DocListViewModel {
+    DocListViewModel(destination: destination, store: docs)
+  }
+}
+
+public struct NativeDocEditorFeatureFactory: DocEditorFeatureFactory {
+  let docs: any DocsStoring
+  let linkPreviewer: any LinkPreviewing
+  public func makeDocEditor(docID: Doc.ID) -> DocEditorViewModel {
+    DocEditorViewModel(docID: docID, store: docs, linkPreviewer: linkPreviewer)
+  }
 }
 
 public struct NativeFeedFeatureFactory: FeedFeatureFactory {
@@ -51,8 +77,9 @@ public struct NativeFeedFeatureFactory: FeedFeatureFactory {
 
 public struct NativeItemDetailFeatureFactory: ItemDetailFeatureFactory {
   let store: any LibraryStoring
+  let docs: any DocsStoring
   public func makeItemDetail(itemID: FeedItem.ID) -> ItemDetailViewModel {
-    ItemDetailViewModel(itemID: itemID, store: store)
+    ItemDetailViewModel(itemID: itemID, store: store, docs: docs)
   }
 }
 
@@ -110,31 +137,41 @@ public struct AppContainer {
   public var feed: any FeedFeatureFactory
   public var itemDetail: any ItemDetailFeatureFactory
   public var channelSettings: any ChannelSettingsFeatureFactory
+  public var docList: any DocListFeatureFactory
+  public var docEditor: any DocEditorFeatureFactory
 
   public init(
     sidebar: any SidebarFeatureFactory,
     feed: any FeedFeatureFactory,
     itemDetail: any ItemDetailFeatureFactory,
-    channelSettings: any ChannelSettingsFeatureFactory
+    channelSettings: any ChannelSettingsFeatureFactory,
+    docList: any DocListFeatureFactory,
+    docEditor: any DocEditorFeatureFactory
   ) {
     self.sidebar = sidebar
     self.feed = feed
     self.itemDetail = itemDetail
     self.channelSettings = channelSettings
+    self.docList = docList
+    self.docEditor = docEditor
   }
 
   /// `collector` is the Mac's connection to the collector daemon; nil on iOS.
   @MainActor
   public static func native(
     store: any LibraryStoring,
+    docs: any DocsStoring,
     statuses: any SourceStatusProviding,
-    collector: (any CollectorControlling)? = nil
+    collector: (any CollectorControlling)? = nil,
+    linkPreviewer: any LinkPreviewing = NativeLinkPreviewer()
   ) -> AppContainer {
     AppContainer(
-      sidebar: NativeSidebarFeatureFactory(store: store),
+      sidebar: NativeSidebarFeatureFactory(store: store, docs: docs),
       feed: NativeFeedFeatureFactory(store: store),
-      itemDetail: NativeItemDetailFeatureFactory(store: store),
-      channelSettings: NativeChannelSettingsFeatureFactory(store: store, statuses: statuses, collector: collector)
+      itemDetail: NativeItemDetailFeatureFactory(store: store, docs: docs),
+      channelSettings: NativeChannelSettingsFeatureFactory(store: store, statuses: statuses, collector: collector),
+      docList: NativeDocListFeatureFactory(docs: docs),
+      docEditor: NativeDocEditorFeatureFactory(docs: docs, linkPreviewer: linkPreviewer)
     )
   }
 }

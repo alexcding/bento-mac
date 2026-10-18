@@ -57,6 +57,11 @@ struct ItemDetailView: View {
         model.isBookmarked ? "Remove Bookmark" : "Bookmark",
         systemImage: model.isBookmarked ? "bookmark.fill" : "bookmark"
       ) { model.toggleBookmark() }
+      Button(
+        model.savedDocID == nil ? "Save to Docs" : "Saved to Docs",
+        systemImage: model.savedDocID == nil ? "doc.badge.plus" : "checkmark.circle"
+      ) { model.saveToDocs() }
+      .disabled(model.savedDocID != nil)
       if let url = item.url.flatMap(URL.init(string:)) {
         ShareLink(item: url)
         Button("Open Original", systemImage: "safari") { openURL(url) }

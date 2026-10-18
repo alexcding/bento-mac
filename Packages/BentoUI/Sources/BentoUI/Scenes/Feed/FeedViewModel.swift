@@ -33,6 +33,7 @@ public final class FeedViewModel {
     case .all: "All items"
     case .bookmarks: "Bookmarks"
     case .channel: "Channel"
+    case .allDocs, .starredDocs, .docFolder: "Docs"
     }
   }
 

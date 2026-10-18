@@ -7,9 +7,20 @@ public enum SidebarDestination: Hashable, Sendable {
   case all
   case bookmarks
   case channel(Channel.ID)
+  case allDocs
+  case starredDocs
+  case docFolder(DocFolder.ID)
 
   var channelID: Channel.ID? {
     if case .channel(let id) = self { id } else { nil }
+  }
+
+  /// Destinations that list docs rather than feed items.
+  public var isDocs: Bool {
+    switch self {
+    case .allDocs, .starredDocs, .docFolder: true
+    case .all, .bookmarks, .channel: false
+    }
   }
 }
 
@@ -19,6 +30,8 @@ public final class SidebarViewModel {
   public enum Action: Equatable {
     case selected(SidebarDestination)
     case openChannelSettings(Channel.ID)
+    /// Show this doc, already in the selected folder.
+    case openDoc(Doc.ID)
   }
 
   public var selection: SidebarDestination = .all {
@@ -53,10 +66,97 @@ public final class SidebarViewModel {
   @FetchOne(Bookmark.count())
   var bookmarkCount = 0
 
-  @ObservationIgnored private let store: any LibraryStoring
+  @ObservationIgnored
+  @FetchAll(
+    DocFolder
+      .group(by: \.id)
+      .order(by: \.position)
+      .leftJoin(Doc.all) { $1.folderID.eq($0.id) }
+      .select { DocFolderRow.Columns(folder: $0, docCount: $1.id.count(filter: $1.parentBlockID.is(nil))) },
+    animation: .default
+  )
+  var folderRows: [DocFolderRow]
 
-  init(store: any LibraryStoring) {
+  @ObservationIgnored
+  @FetchOne(Doc.where { $0.parentBlockID.is(nil) }.count())
+  var docCount = 0
+
+  /// The folder whose name is being edited in place.
+  var renamingFolderID: DocFolder.ID?
+
+  @ObservationIgnored private let store: any LibraryStoring
+  @ObservationIgnored private let docs: any DocsStoring
+
+  init(store: any LibraryStoring, docs: any DocsStoring) {
     self.store = store
+    self.docs = docs
+  }
+
+  /// Folders nested under their parents, each level in position order.
+  var folderTree: [DocFolderNode] {
+    let children = Dictionary(grouping: folderRows, by: \.folder.parentID)
+    let ids = Set(folderRows.map(\.id))
+    func nodes(_ parentID: DocFolder.ID?) -> [DocFolderNode] {
+      (children[parentID] ?? []).map { row in
+        let nested = nodes(row.id)
+        return DocFolderNode(row: row, children: nested.isEmpty ? nil : nested)
+      }
+    }
+    // A folder whose parent has not synced yet shows at the top level until it arrives.
+    let orphans = folderRows.filter { $0.folder.parentID.map { !ids.contains($0) } ?? false }
+    return nodes(nil) + orphans.map { DocFolderNode(row: $0, children: nodes($0.id).nilIfEmpty) }
+  }
+
+  /// Today's daily note: its folder selected and the note open.
+  func openToday() {
+    withErrorReporting {
+      let (folderID, docID) = try docs.dailyNote()
+      // Where the note is now: it may have been moved out of Daily Notes.
+      selection = folderID.map(SidebarDestination.docFolder) ?? .allDocs
+      onAction(.openDoc(docID))
+    }
+  }
+
+  func addFolder(parentID: DocFolder.ID? = nil) {
+    withErrorReporting {
+      let id = try docs.addFolder(name: "New folder", parentID: parentID)
+      selection = .docFolder(id)
+      renamingFolderID = id
+    }
+  }
+
+  func renameFolder(_ id: DocFolder.ID, to name: String) {
+    renamingFolderID = nil
+    let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !name.isEmpty else { return }
+    withErrorReporting { try docs.renameFolder(id, name: name) }
+  }
+
+  /// Docs dropped on a folder (nil: All docs, the top level) move into it.
+  func dropDocs(_ items: [String], into folderID: DocFolder.ID?) -> Bool {
+    let ids = DocDrag.docIDs(items)
+    guard !ids.isEmpty else { return false }
+    withErrorReporting {
+      for id in ids { try docs.moveDoc(id, folderID: folderID) }
+    }
+    return true
+  }
+
+  func deleteFolder(_ id: DocFolder.ID) {
+    if case .docFolder(let selected) = selection, isInside(selected, id) { selection = .allDocs }
+    withErrorReporting { try docs.deleteFolder(id) }
+  }
+
+  /// Whether `folderID` is `ancestorID` or nested anywhere below it.
+  private func isInside(_ folderID: DocFolder.ID, _ ancestorID: DocFolder.ID) -> Bool {
+    let parents = Dictionary(folderRows.map { ($0.id, $0.folder.parentID) }, uniquingKeysWith: { first, _ in first })
+    var current: DocFolder.ID? = folderID
+    var seen: Set<DocFolder.ID> = []
+    while let id = current, seen.insert(id).inserted {
+      if id == ancestorID { return true }
+      current = parents[id] ?? nil
+    }
+    return false
   }
 
   func addChannel() {
@@ -89,4 +189,21 @@ struct ChannelRow: Identifiable {
   let sourceCount: Int
   let unreadCount: Int
   var id: Channel.ID { channel.id }
+}
+
+@Selection
+struct DocFolderRow: Identifiable {
+  let folder: DocFolder
+  let docCount: Int
+  var id: DocFolder.ID { folder.id }
+}
+
+struct DocFolderNode: Identifiable {
+  let row: DocFolderRow
+  let children: [DocFolderNode]?
+  var id: DocFolder.ID { row.id }
+}
+
+extension Array {
+  fileprivate var nilIfEmpty: Self? { isEmpty ? nil : self }
 }

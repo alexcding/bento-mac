@@ -30,7 +30,11 @@ struct BentoApp: App {
     _collectorModel = State(initialValue: CollectorViewModel(service: collector))
     let store = NativeLibraryStore(database: database)
     _coordinator = State(
-      initialValue: AppCoordinator(container: .native(store: store, statuses: collector, collector: collector))
+      initialValue: AppCoordinator(
+        container: .native(
+          store: store, docs: NativeDocsStore(database: database), statuses: collector, collector: collector
+        )
+      )
     )
     _settingsModel = State(
       initialValue: NativeSettingsFeatureFactory(store: store, collector: collector).makeSettings()

@@ -2,7 +2,8 @@
 
 Bento is a native, open-source (MIT) Mac app that collects posts from social media and RSS 24/7,
 translates and summarizes them with an AI CLI, forwards them to Discord and Telegram, and syncs the
-results through iCloud. An iOS reader follows later. Notes are out of scope for now.
+results through iCloud. An iOS reader follows later. Docs keep the user's own reading and study
+material next to the feeds.
 
 ## Decisions
 
@@ -18,7 +19,8 @@ results through iCloud. An iOS reader follows later. Notes are out of scope for 
 | Publishers | Discord webhook and Telegram bot built into the daemon; posting as the user through plugins: Telegram account (`grammers`, protocol plugin) and X (`twitter-cli`, CLI plugin). |
 | Collector | One Mac collects and publishes (`AppSettings.collectorDeviceID`, synced); every other device only reads. |
 | Retention | Feed items: forever (configurable). Article detail: 30 days, bookmarked items forever. Mac archive: forever, never synced. |
-| Out of scope | Rates, IPTV, GitHub runner, DB browser. Notes come later, with a third-party native rich-text editor. |
+| Docs | Craft-style block docs in nested folders, synced like the library: one row per block (fractional positions), inline Markdown in block text, Markdown import and export, any other file attached as a CKAsset. Native SwiftUI editor, no third-party rich-text view. |
+| Out of scope | Rates, IPTV, GitHub runner, DB browser. Whiteboards and Craft collections (gallery, kanban). |
 
 ## Architecture
 
@@ -278,7 +280,7 @@ with sync off.
 | 2 | Plugin host + test kit; X, Reddit, YouTube, Bilibili, Telegram, Xiaohongshu; detail extraction; AI service with CLI and HTTP providers and configurable steps; run options; Mac settings screens | Every source runs unattended for a week with no duplicates or crashes |
 | 3 | Discord, Telegram bot, Telegram account (`grammers`: sending and private channels), X posting | A week with no duplicate or missed sends |
 
-| Later | iOS reader, read-only local JSON API, notes | — |
+| Later | iOS reader, read-only local JSON API | — |
 
 Phase 2 ships in slices, each reviewed twice: **2a** plugin host, manifest and mapping, CLI plugins (X,
 Reddit, YouTube, Xiaohongshu), dependency checks, Keychain secrets; **2b** AI service and article text

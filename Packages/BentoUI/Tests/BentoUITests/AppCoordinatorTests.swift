@@ -12,12 +12,12 @@ struct AppCoordinatorTests {
 
   @Test func selectingADestinationReplacesTheFeedAndClearsTheItem() {
     let coordinator = AppCoordinator(container: .test(store: store))
-    coordinator.feed.selectedItemID = UUID()
+    coordinator.feed?.selectedItemID = UUID()
     #expect(coordinator.itemDetail != nil)
 
     coordinator.sidebar.selection = .bookmarks
 
-    #expect(coordinator.feed.destination == .bookmarks)
+    #expect(coordinator.feed?.destination == .bookmarks)
     #expect(coordinator.itemDetail == nil)
   }
 
@@ -34,10 +34,10 @@ struct AppCoordinatorTests {
     let coordinator = AppCoordinator(container: .test(store: store))
     let id = UUID()
 
-    coordinator.feed.selectedItemID = id
+    coordinator.feed?.selectedItemID = id
     #expect(coordinator.itemDetail?.itemID == id)
 
-    coordinator.feed.selectedItemID = nil
+    coordinator.feed?.selectedItemID = nil
     #expect(coordinator.itemDetail == nil)
   }
 
@@ -51,7 +51,7 @@ struct AppCoordinatorTests {
     #expect(coordinator.channelSettings == nil)
 
     coordinator.sidebar.selection = .channel(channel)
-    coordinator.feed.openChannelSettings()
+    coordinator.feed?.openChannelSettings()
     #expect(coordinator.channelSettings?.channelID == channel)
   }
 
@@ -61,7 +61,7 @@ struct AppCoordinatorTests {
     coordinator.sidebar.addChannel()
 
     #expect(store.calls == ["addChannel(New channel)"])
-    #expect(coordinator.feed.destination == .channel(store.newChannelID))
+    #expect(coordinator.feed?.destination == .channel(store.newChannelID))
     #expect(coordinator.channelSettings?.channelID == store.newChannelID)
   }
 
@@ -72,7 +72,7 @@ struct AppCoordinatorTests {
 
     coordinator.sidebar.delete(channel)
 
-    #expect(coordinator.feed.destination == .all)
+    #expect(coordinator.feed?.destination == .all)
     #expect(store.calls == ["deleteChannel"])
   }
 }

@@ -63,6 +63,12 @@ public final class AppCoordinator: Coordinatable {
       let model = container.channelSettings.makeChannelSettings(channelID: id)
       model.onAction = { [weak self] in self?.handle(.channelSettings($0)) }
       channelSettings = model
+    case .sidebar(.newChannel):
+      let model = container.channelSettings.makeNewChannel()
+      model.onAction = { [weak self] in self?.handle(.channelSettings($0)) }
+      channelSettings = model
+    case .channelSettings(.created(let id)):
+      sidebar.selection = .channel(id)
     case .feed(.selectedItem(let id)):
       guard id != itemDetail?.itemID else { return }
       itemDetail = id.map(container.itemDetail.makeItemDetail(itemID:))

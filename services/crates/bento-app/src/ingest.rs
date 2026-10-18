@@ -86,7 +86,7 @@ impl<O: Outbox, C: Clock> Ingestor<O, C> {
         let entries: Vec<OutboxEntry> = items
             .into_iter()
             .map(|n| OutboxEntry {
-                detail: n.body_markdown.as_deref().map(detail::encode),
+                detail: n.detail.as_ref().map(detail::encode),
                 item: n.item,
             })
             .collect();
@@ -224,7 +224,7 @@ pub(crate) mod tests {
         assert_eq!(entries[0].item.fetched_at, clock.now());
         assert_eq!(
             detail::decode(entries[0].detail.as_ref().unwrap()).unwrap(),
-            "# Body"
+            detail::Detail::markdown("# Body")
         );
     }
 

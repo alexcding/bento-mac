@@ -50,10 +50,30 @@ public final class AddSourceViewModel: Identifiable {
     self.collector = collector
   }
 
-  /// Every source type: the collector's loaded source plugins, or RSS without one.
+  /// Every source type: the collector's loaded source plugins, or RSS without one, in
+  /// `SourceIcon.order`.
   var plugins: [PluginInfo] {
     let loaded = collector?.plugins.filter { $0.isSource && $0.loadError == nil } ?? []
-    return loaded.isEmpty ? [.rss] : loaded
+    let rank = { (plugin: PluginInfo) in SourceIcon.order.firstIndex(of: plugin.id) ?? SourceIcon.order.count }
+    return (loaded.isEmpty ? [.rss] : loaded).sorted {
+      (rank($0), $0.name.localizedLowercase) < (rank($1), $1.name.localizedLowercase)
+    }
+  }
+
+  /// Typed into the list's search field.
+  var search = ""
+
+  /// The plugins the list shows: those matching `search`, ready ones first when this Mac checks
+  /// setup. One untitled group otherwise.
+  var groups: [(title: String?, plugins: [PluginInfo])] {
+    let term = search.trimmingCharacters(in: .whitespaces)
+    let shown = term.isEmpty ? plugins : plugins.filter {
+      $0.name.localizedCaseInsensitiveContains(term) || $0.summary.localizedCaseInsensitiveContains(term)
+    }
+    guard checksSetup else { return shown.isEmpty ? [] : [(nil, shown)] }
+    let ready = shown.filter { setup(for: $0).isComplete }
+    let other = shown.filter { !setup(for: $0).isComplete }
+    return [("Ready to add", ready), ("Needs setup", other)].filter { !$0.plugins.isEmpty }
   }
 
   /// Only the collector Mac fetches and keeps the sign-ins, so only it checks and sets them up.
@@ -185,9 +205,29 @@ public final class AddSourceViewModel: Identifiable {
     return plugin.accepts(query: query)
   }
 
+  /// Set for a channel not saved yet: `add()` hands the source here instead of saving it.
+  @ObservationIgnored var onDraft: ((Source) -> Void)?
+
+  /// Adds the source on the plugin's default interval, and on the collector Mac fetches it right
+  /// away instead of waiting for the next pass.
   func add() {
     guard canAdd, let plugin else { return }
-    withErrorReporting {
+    if let onDraft {
+      let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+      let name = name.trimmingCharacters(in: .whitespaces)
+      onDraft(
+        Mutations.newSource(
+          pluginID: plugin.id,
+          name: name.isEmpty ? NativeLibraryStore.defaultName(pluginID: plugin.id, query: query) : name,
+          query: query,
+          intervalMinutes: max(plugin.defaultIntervalMinutes, 1),
+          skipInitialBacklog: skipsBacklog
+        )
+      )
+      onAction(.dismiss)
+      return
+    }
+    let id = withErrorReporting {
       try store.addSource(
         channelID: channelID,
         pluginID: plugin.id,
@@ -197,8 +237,15 @@ public final class AddSourceViewModel: Identifiable {
         skipInitialBacklog: skipsBacklog
       )
     }
+    if let id, let collector, collector.isThisMacCollector {
+      // Outlives the sheet; a failure shows on the source like any scheduled run's.
+      firstFetch = Task { _ = try? await collector.fetchNow(sourceID: id) }
+    }
     onAction(.dismiss)
   }
+
+  /// The fetch `add()` started, kept for tests.
+  @ObservationIgnored private(set) var firstFetch: Task<Void, Never>?
 
   func cancel() {
     login?.close()

@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use bento_app::{PortError, SourceFetcher};
-use bento_domain::{Author, Media, MediaKind, RawItem, SourceConfig, html};
+use bento_domain::{Author, Media, MediaKind, RawItem, SourceConfig, detail::Detail, html};
 use feed_rs::model::{Entry, Feed};
 use thiserror::Error;
 
@@ -74,18 +74,38 @@ fn raw_item(feed: &Feed, entry: &Entry) -> RawItem {
         .find(|link| link.rel.as_deref().is_none_or(|rel| rel == "alternate"))
         .or_else(|| entry.links.first())
         .map(|link| link.href.clone());
-    let text = entry
+    let summary = entry
         .summary
         .as_ref()
-        .map(|summary| summary.content.as_str())
-        .or_else(|| {
-            entry
-                .content
-                .as_ref()
-                .and_then(|content| content.body.as_deref())
-        })
+        .map(|summary| summary.content.as_str());
+    let content = entry
+        .content
+        .as_ref()
+        .and_then(|content| content.body.as_deref());
+    let body = summary.or(content);
+    // The full article where the feed has one (`content:encoded`, Atom `content`), else the
+    // description, kept as HTML for the detail page.
+    let detail = content
+        .or(summary)
+        .filter(|html| !html.trim().is_empty())
+        .map(Detail::html);
+    let text = body
         .map(|html| html::truncate_chars(&html::body_to_text(html), MAX_TEXT_CHARS))
         .unwrap_or_default();
+    let mut media = media(entry);
+    if media.is_empty()
+        && let Some(url) = body.and_then(html::first_image_src)
+    {
+        media.push(Media {
+            kind: MediaKind::Image,
+            url,
+            width: None,
+            height: None,
+            thumbnail_url: None,
+            duration: None,
+            embed_url: None,
+        });
+    }
     let author_name = entry
         .authors
         .first()
@@ -116,7 +136,8 @@ fn raw_item(feed: &Feed, entry: &Entry) -> RawItem {
                 .or(feed.logo.as_ref())
                 .map(|image| image.uri.clone()),
         }),
-        media: media(entry),
+        media,
+        detail,
         published_at: entry.published.or(entry.updated),
         language: feed.language.clone(),
         ..RawItem::default()
@@ -237,6 +258,29 @@ mod tests {
         assert_eq!(
             items[0].title.as_deref(),
             Some("Why Vec<T> beats arrays & 1 < 2 is true")
+        );
+    }
+
+    #[test]
+    fn falls_back_to_the_first_body_image() {
+        let feed = r#"<?xml version="1.0"?><rss version="2.0"><channel><title>Deals</title>
+            <link>https://www.example.com/blog/</link>
+            <item><guid>1</guid><title>t</title><description><![CDATA[<header><img width="95" src="https://cdn.example.com/1.jpg"></header><p>Body</p>]]></description></item>
+            </channel></rss>"#;
+        let item = &parse(feed.as_bytes()).unwrap()[0];
+        assert_eq!(
+            item.author.as_ref().unwrap().avatar_url,
+            None,
+            "the app picks the site's icon"
+        );
+        assert_eq!(item.media.len(), 1);
+        assert_eq!(item.media[0].url, "https://cdn.example.com/1.jpg");
+        assert_eq!(item.text, "Body");
+        assert_eq!(
+            item.detail.as_ref().map(|d| d.body.as_str()),
+            Some(
+                r#"<header><img width="95" src="https://cdn.example.com/1.jpg"></header><p>Body</p>"#
+            )
         );
     }
 

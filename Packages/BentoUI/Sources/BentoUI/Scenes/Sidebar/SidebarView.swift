@@ -22,7 +22,7 @@ struct SidebarView: View {
               Button("Settings…") { model.openSettings(row.channel) }
               Button(row.channel.isEnabled ? "Pause" : "Resume") { model.toggleEnabled(row.channel) }
               Divider()
-              Button("Delete", role: .destructive) { model.delete(row.channel) }
+              Button("Delete…", role: .destructive) { model.channelToDelete = row.channel }
             }
         }
         Button {
@@ -74,6 +74,15 @@ struct SidebarView: View {
       }
     }
     .listStyle(.sidebar)
+    .confirmationDialog(
+      "Delete “\(model.channelToDelete?.name ?? "")”?",
+      isPresented: Binding(get: { model.channelToDelete != nil }, set: { if !$0 { model.channelToDelete = nil } }),
+      presenting: model.channelToDelete
+    ) { channel in
+      Button("Delete Channel", role: .destructive) { model.delete(channel) }
+    } message: { _ in
+      Text("Its sources and their items are deleted too, unless another channel uses them. Bookmarks are kept.")
+    }
     .sidebarStyle()
   }
 }

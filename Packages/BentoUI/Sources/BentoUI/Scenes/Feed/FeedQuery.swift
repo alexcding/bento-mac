@@ -29,6 +29,9 @@ enum FeedQuery {
       .where {
         if let channelID {
           $0.sourceID.in(ChannelSource.where { $0.channelID.eq(channelID) }.select(\.sourceID))
+        } else {
+          // Items left from a deleted source (on a device that missed the delete) stay hidden.
+          $0.sourceID.in(Source.select(\.id))
         }
       }
       .where { item in

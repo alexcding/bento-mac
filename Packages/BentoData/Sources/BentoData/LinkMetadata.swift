@@ -109,7 +109,7 @@ public struct LinkMetadata: Hashable, Sendable {
     text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
   }
 
-  private static func decodeEntities(_ text: String) -> String {
+  static func decodeEntities(_ text: String) -> String {
     guard text.contains("&") else { return text }
     var result = text
     for (entity, character) in [("&quot;", "\""), ("&#39;", "'"), ("&#x27;", "'"), ("&apos;", "'"), ("&lt;", "<"), ("&gt;", ">"), ("&nbsp;", " ")] {

@@ -1,3 +1,4 @@
+import Foundation
 import BentoData
 
 // One factory per feature. Tests substitute these; production uses the `Native*` versions.
@@ -30,6 +31,8 @@ public protocol ItemDetailFeatureFactory {
 @MainActor
 public protocol ChannelSettingsFeatureFactory {
   func makeChannelSettings(channelID: Channel.ID) -> ChannelSettingsViewModel
+  /// Settings for a channel not saved yet: name and switch, then Create.
+  func makeNewChannel() -> ChannelSettingsViewModel
 }
 
 @MainActor
@@ -88,8 +91,17 @@ public struct NativeChannelSettingsFeatureFactory: ChannelSettingsFeatureFactory
   let statuses: any SourceStatusProviding
   let collector: (any CollectorControlling)?
   public func makeChannelSettings(channelID: Channel.ID) -> ChannelSettingsViewModel {
+    make(channelID: channelID, isNew: false)
+  }
+
+  public func makeNewChannel() -> ChannelSettingsViewModel {
+    make(channelID: UUID(), isNew: true)
+  }
+
+  private func make(channelID: Channel.ID, isNew: Bool) -> ChannelSettingsViewModel {
     ChannelSettingsViewModel(
       channelID: channelID,
+      isNew: isNew,
       store: store,
       statuses: statuses,
       collector: collector,

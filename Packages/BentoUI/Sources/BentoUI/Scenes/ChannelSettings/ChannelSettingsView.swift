@@ -7,7 +7,15 @@ struct ChannelSettingsView: View {
   var body: some View {
     NavigationStack {
       Form {
-        if let channel = model.channel {
+        if model.isNew {
+          Section {
+            TextField("Name", text: $model.name)
+              .onSubmit { Task { await model.create() } }
+            Toggle("Enabled", isOn: $model.newIsEnabled)
+          } header: {
+            Text("Channel")
+          }
+        } else if let channel = model.channel {
           Section("Channel") {
             TextField("Name", text: $model.name)
               .onSubmit { model.saveName() }
@@ -15,13 +23,13 @@ struct ChannelSettingsView: View {
           }
         }
         Section("Sources") {
-          ForEach(model.sources) { source in
+          ForEach(model.shownSources) { source in
             SourceRow(
               source: source,
               pluginName: model.pluginName(for: source),
               status: model.status(for: source),
               toggle: { var copy = source; copy.isEnabled = $0; model.update(copy) },
-              edit: { model.edit(source) },
+              edit: model.isNew ? nil : { model.edit(source) },
               delete: { model.delete(source) }
             )
           }
@@ -32,10 +40,19 @@ struct ChannelSettingsView: View {
         }
       }
       .formStyle(.grouped)
-      .navigationTitle(model.channel?.name ?? "Channel")
+      .navigationTitle(model.isNew ? "New Channel" : model.channel?.name ?? "Channel")
       .toolbar {
-        ToolbarItem(placement: .confirmationAction) {
-          Button("Done") { model.done() }
+        if model.isNew {
+          ToolbarItem(placement: .cancellationAction) {
+            Button("Cancel") { model.cancel() }
+          }
+          ToolbarItem(placement: .confirmationAction) {
+            Button("Create") { Task { await model.create() } }.disabled(!model.canCreate)
+          }
+        } else {
+          ToolbarItem(placement: .confirmationAction) {
+            Button("Done") { model.done() }
+          }
         }
       }
     }
@@ -49,7 +66,7 @@ struct ChannelSettingsView: View {
 
   private var destinationsSection: some View {
     Section {
-      ForEach(model.destinations) { destination in
+      ForEach(model.shownDestinations) { destination in
         DestinationRow(
           destination: destination,
           canManage: model.canManageDestinations,
@@ -104,7 +121,8 @@ private struct SourceRow: View {
   let pluginName: String
   let status: SourceStatus?
   let toggle: (Bool) -> Void
-  let edit: () -> Void
+  /// Nil until the source is saved: the full editor works on saved sources.
+  let edit: (() -> Void)?
   let delete: () -> Void
 
   var body: some View {
@@ -125,7 +143,9 @@ private struct SourceRow: View {
         }
       }
       Spacer()
-      Button("Edit", systemImage: "slider.horizontal.3", action: edit).labelStyle(.iconOnly).buttonStyle(.borderless)
+      if let edit {
+        Button("Edit", systemImage: "slider.horizontal.3", action: edit).labelStyle(.iconOnly).buttonStyle(.borderless)
+      }
       Button("Delete", systemImage: "trash", role: .destructive, action: delete)
         .labelStyle(.iconOnly)
         .buttonStyle(.borderless)

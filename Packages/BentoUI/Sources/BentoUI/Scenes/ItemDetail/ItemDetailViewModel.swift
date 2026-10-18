@@ -29,11 +29,16 @@ public final class ItemDetailViewModel: Identifiable {
   var item: FeedItem? { feedItem ?? bookmark?.asFeedItem }
   var isBookmarked: Bool { bookmark != nil }
 
-  /// The article detail as Markdown, from the item or its bookmarked copy.
-  var detailMarkdown: String? {
+  /// The article detail in its own format, from the item or its bookmarked copy. Decoded once per
+  /// stored blob.
+  var detail: DetailContent? {
     guard let blob = feedDetail?.markdown ?? bookmarkDetail?.markdown else { return nil }
-    return try? DetailCodec.decode(blob)
+    if let decoded, decoded.blob == blob { return decoded.detail }
+    let detail = try? DetailCodec.decode(blob)
+    decoded = (blob, detail)
+    return detail
   }
+  @ObservationIgnored private var decoded: (blob: Data, detail: DetailContent?)?
 
   /// Loads the item and marks it read.
   func load() async {
@@ -57,7 +62,16 @@ public final class ItemDetailViewModel: Identifiable {
     if let url = item.url { blocks.append(DocContent(kind: .link, text: url)) }
     if let summary = item.summary, !summary.isEmpty { blocks.append(DocContent(text: summary, decoration: .focus)) }
     blocks += DocMarkdown.blocks(from: item.text)
-    if let markdown = detailMarkdown { blocks += [DocContent(kind: .divider)] + DocMarkdown.blocks(from: markdown) }
+    if let detail {
+      let article: [DocContent] =
+        switch detail.format {
+        case .markdown: DocMarkdown.blocks(from: detail.body)
+        case .html: DocHTML.blocks(from: detail.body)
+        case .text: detail.body.split(separator: "\n").map { DocContent(text: String($0)) }
+        case .link: [DocContent(kind: .link, text: detail.body)]
+        }
+      if !article.isEmpty { blocks += [DocContent(kind: .divider)] + article }
+    }
     savedDocID = withErrorReporting { try docs.addDoc(folderID: nil, title: title, blocks: blocks) }
   }
 

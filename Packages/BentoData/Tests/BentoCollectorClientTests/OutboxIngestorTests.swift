@@ -68,7 +68,7 @@ import Testing
     #expect(item.media.count == 2)
     #expect(item.translatedTitle == "翻译标题")
     let detail = try #require(try database.read { try FeedItemDetail.all.fetchOne($0) })
-    #expect(try DetailCodec.decode(detail.markdown).hasPrefix("# 标题"))
+    #expect(try DetailCodec.decode(detail.markdown).body.hasPrefix("# 标题"))
   }
 
   @Test func readsOnlyNewRows() throws {
@@ -145,6 +145,6 @@ import Testing
     #expect(item.id == StableID.feedItem(sourceID: item.sourceID, externalID: item.externalID))
     #expect(item.isPublishedAtEstimated)
     let detail = try #require(try database.read { try FeedItemDetail.all.fetchOne($0) })
-    #expect(try DetailCodec.decode(detail.markdown).hasPrefix("# Test item"))
+    #expect(try DetailCodec.decode(detail.markdown).body.hasPrefix("# Test item"))
   }
 }

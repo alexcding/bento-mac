@@ -30,6 +30,7 @@ public final class SidebarViewModel {
   public enum Action: Equatable {
     case selected(SidebarDestination)
     case openChannelSettings(Channel.ID)
+    case newChannel
     /// Show this doc, already in the selected folder.
     case openDoc(Doc.ID)
   }
@@ -59,7 +60,9 @@ public final class SidebarViewModel {
   var rows: [ChannelRow]
 
   @ObservationIgnored
-  @FetchOne(FeedItem.where { !$0.id.in(ReadState.select(\.feedItemID)) }.count())
+  @FetchOne(
+    FeedItem.where { !$0.id.in(ReadState.select(\.feedItemID)) && $0.sourceID.in(Source.select(\.id)) }.count()
+  )
   var unreadTotal = 0
 
   @ObservationIgnored
@@ -159,12 +162,9 @@ public final class SidebarViewModel {
     return false
   }
 
+  /// Opens settings for a channel that is saved only when the user creates it.
   func addChannel() {
-    withErrorReporting {
-      let id = try store.addChannel(name: "New channel")
-      selection = .channel(id)
-      onAction(.openChannelSettings(id))
-    }
+    onAction(.newChannel)
   }
 
   func openSettings(_ channel: Channel) {
@@ -177,7 +177,11 @@ public final class SidebarViewModel {
     withErrorReporting { try store.updateChannel(channel) }
   }
 
+  /// The channel the user asked to delete, waiting for confirmation.
+  var channelToDelete: Channel?
+
   func delete(_ channel: Channel) {
+    channelToDelete = nil
     if selection == .channel(channel.id) { selection = .all }
     withErrorReporting { try store.deleteChannel(channel.id) }
   }

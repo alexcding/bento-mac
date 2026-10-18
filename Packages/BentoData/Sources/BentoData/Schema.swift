@@ -344,3 +344,16 @@ extension Channel.Draft {
     self.init(id: nil, name: name, isEnabled: true, maxItems: 10, position: position)
   }
 }
+
+extension Destination {
+  public init(id: UUID = UUID(), channelID: Channel.ID, kind: Kind, name: String, chatID: String? = nil) {
+    self.init(id: id, channelID: channelID, kind: kind, name: name, chatID: chatID, postDelaySeconds: 20, isEnabled: true)
+  }
+}
+
+extension Channel {
+  /// A channel not saved yet; `Mutations.createChannel` gives it its position.
+  public init(id: UUID = UUID(), name: String, isEnabled: Bool = true) {
+    self.init(id: id, name: name, isEnabled: isEnabled, maxItems: 10, position: 0)
+  }
+}

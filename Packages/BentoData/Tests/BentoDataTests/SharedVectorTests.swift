@@ -16,6 +16,7 @@ struct Vectors: Decodable {
     let expected: UUID
   }
   struct DetailCase: Decodable {
+    var format: String?
     let markdown: String
     let encoded_base64: String
   }
@@ -44,17 +45,22 @@ struct Vectors: Decodable {
   @Test func decodesRustVectors() throws {
     for c in try Vectors.load().details {
       let blob = try #require(Data(base64Encoded: c.encoded_base64))
-      #expect(try DetailCodec.decode(blob) == c.markdown)
+      let format: DetailContent.Format = c.format == "html" ? .html : .markdown
+      #expect(try DetailCodec.decode(blob) == DetailContent(format: format, body: c.markdown))
     }
   }
 
   @Test func roundTrips() throws {
     let text = "# 标题\n\nbody **bold**"
-    #expect(try DetailCodec.decode(DetailCodec.encode(text)) == text)
+    #expect(try DetailCodec.decode(DetailCodec.encode(text)).body == text)
+    let html = DetailContent(format: .html, body: "<p>\(text)</p>")
+    #expect(try DetailCodec.decode(DetailCodec.encode(html)) == html)
+
   }
 
   @Test func rejectsBadBlobs() {
     #expect(throws: DetailCodec.Error.empty) { try DetailCodec.decode(Data()) }
     #expect(throws: DetailCodec.Error.unknownCodec(0x7f)) { try DetailCodec.decode(Data([0x7f, 1])) }
+    #expect(throws: DetailCodec.Error.unknownFormat(9)) { try DetailCodec.decode(Data([0x02, 9, 1])) }
   }
 }

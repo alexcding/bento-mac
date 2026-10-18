@@ -6,10 +6,12 @@ import SQLiteData
 /// view models; writes go through here so tests can substitute a fake.
 @MainActor
 public protocol LibraryStoring {
-  func addChannel(name: String) throws -> Channel.ID
+  /// Saves a new channel with the sources and destinations set up before it was saved.
+  func createChannel(_ channel: Channel, sources: [Source], destinations: [Destination]) throws
   func updateChannel(_ channel: Channel) throws
   func deleteChannel(_ id: Channel.ID) throws
   /// Adds a source of `pluginID` to a channel; `name` defaults from the query.
+  @discardableResult
   func addSource(
     channelID: Channel.ID,
     pluginID: String,
@@ -17,7 +19,7 @@ public protocol LibraryStoring {
     name: String?,
     intervalMinutes: Int,
     skipInitialBacklog: Bool
-  ) throws
+  ) throws -> Source.ID
   func updateSource(_ source: Source) throws
   func deleteSource(_ id: Source.ID) throws
   func addDestination(id: Destination.ID, channelID: Channel.ID, kind: Destination.Kind, name: String, chatID: String?) throws
@@ -40,8 +42,8 @@ public struct NativeLibraryStore: LibraryStoring {
     self.database = database
   }
 
-  public func addChannel(name: String) throws -> Channel.ID {
-    try database.write { try Mutations.addChannel($0, name: name) }
+  public func createChannel(_ channel: Channel, sources: [Source], destinations: [Destination]) throws {
+    try database.write { try Mutations.createChannel($0, channel, sources: sources, destinations: destinations) }
   }
 
   public func updateChannel(_ channel: Channel) throws {
@@ -52,6 +54,7 @@ public struct NativeLibraryStore: LibraryStoring {
     try database.write { try Mutations.deleteChannel($0, id: id) }
   }
 
+  @discardableResult
   public func addSource(
     channelID: Channel.ID,
     pluginID: String,
@@ -59,11 +62,11 @@ public struct NativeLibraryStore: LibraryStoring {
     name: String?,
     intervalMinutes: Int,
     skipInitialBacklog: Bool
-  ) throws {
+  ) throws -> Source.ID {
     let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
     let name = name.flatMap { $0.isEmpty ? nil : $0 } ?? Self.defaultName(pluginID: pluginID, query: query)
-    try database.write { db in
-      _ = try Mutations.addSource(
+    return try database.write { db in
+      try Mutations.addSource(
         db, channelID: channelID, pluginID: pluginID, name: name, query: query,
         intervalMinutes: max(intervalMinutes, 1), skipInitialBacklog: skipInitialBacklog
       )

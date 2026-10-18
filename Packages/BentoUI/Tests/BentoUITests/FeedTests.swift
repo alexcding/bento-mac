@@ -22,12 +22,15 @@ import Testing
       let news = try Mutations.addChannel(db, name: "News")
       let source = try Mutations.addSource(db, channelID: news, pluginID: "rss", name: "n", query: "n")
       let newsItem = item(sourceID: source, title: "Rust 2.0 released", publishedAt: Date(timeIntervalSince1970: 2))
-      let otherItem = item(title: "Über Wetter", summary: "Sunny", publishedAt: Date(timeIntervalSince1970: 1))
-      try FeedItem.insert { newsItem; otherItem }.execute(db)
+      let other = try Mutations.addSource(db, channelID: news, pluginID: "rss", name: "o", query: "o")
+      try ChannelSource.where { $0.sourceID.eq(other) }.delete().execute(db)
+      let otherItem = item(sourceID: other, title: "Über Wetter", summary: "Sunny", publishedAt: Date(timeIntervalSince1970: 1))
+      let orphan = item(title: "From a deleted source", publishedAt: Date(timeIntervalSince1970: 3))
+      try FeedItem.insert { newsItem; otherItem; orphan }.execute(db)
       return (news, newsItem, otherItem)
     }
 
-    #expect(try rows().map(\.id) == [newsItem.id, otherItem.id], "newest first")
+    #expect(try rows().map(\.id) == [newsItem.id, otherItem.id], "newest first, without the orphan")
     #expect(try rows(news).map(\.id) == [newsItem.id])
     #expect(try rows(search: "RUST").map(\.id) == [newsItem.id])
     #expect(try rows(search: "sunny").map(\.id) == [otherItem.id], "searches the summary")
@@ -39,10 +42,12 @@ import Testing
   }
 
   @Test func bookmarksListTheSavedCopyEvenAfterTheItemIsGone() throws {
-    let saved = item(title: "Keep me")
-    try database.write { db in
+    let saved = try database.write { db in
+      let channel = try Mutations.addChannel(db, name: "C")
+      let saved = item(sourceID: try Mutations.addSource(db, channelID: channel, pluginID: "rss", name: "s", query: "s"), title: "Keep me")
       try FeedItem.insert { saved }.execute(db)
       try Mutations.setBookmarked(db, itemID: saved.id, true)
+      return saved
     }
     #expect(try rows().first?.isBookmarked == true)
     try database.write { try FeedItem.find(saved.id).delete().execute($0) }
@@ -62,10 +67,11 @@ struct FeedViewModelTests {
   @Test func keyboardMovesSelectionWithinBounds() async throws {
     @Dependency(\.defaultDatabase) var database
     try await database.write { db in
+      let source = try Mutations.addSource(db, channelID: Mutations.addChannel(db, name: "C"), pluginID: "rss", name: "s", query: "s")
       try FeedItem.insert {
-        item(publishedAt: Date(timeIntervalSince1970: 3))
-        item(publishedAt: Date(timeIntervalSince1970: 2))
-        item(publishedAt: Date(timeIntervalSince1970: 1))
+        item(sourceID: source, publishedAt: Date(timeIntervalSince1970: 3))
+        item(sourceID: source, publishedAt: Date(timeIntervalSince1970: 2))
+        item(sourceID: source, publishedAt: Date(timeIntervalSince1970: 1))
       }
       .execute(db)
     }
@@ -136,6 +142,9 @@ struct FeedViewModelTests {
     #expect(FeedCardModel(item(title: "T", text: "Body", summary: "Sum")).body == "Sum")
     #expect(FeedCardModel(item(title: "T", text: "Body")).body == "Body")
     #expect(FeedCardModel(item(title: nil, text: "Tweet text")).body == nil)
+    let picture = [Media(kind: .image, url: "https://x/1.jpg")]
+    #expect(FeedCardModel(item(title: "Article", media: picture)).thumbnailURL?.absoluteString == "https://x/1.jpg")
+    #expect(FeedCardModel(item(title: nil, text: "Tweet", media: picture)).thumbnailURL == nil, "posts keep the avatar")
   }
 }
 
@@ -335,7 +344,7 @@ struct AddSourceTests {
     let model = model(collector)
     await model.load()
 
-    #expect(model.plugins.map(\.id) == ["x", "youtube"])
+    #expect(model.plugins.map(\.id) == ["youtube", "x"], "in SourceIcon.order")
     #expect(model.setup(for: x).needsSignIn, "ct0 is missing")
     #expect(model.setup(for: youtube).missingPrograms.map(\.name) == ["yt-dlp"])
 
@@ -354,6 +363,19 @@ struct AddSourceTests {
     #expect(model.step == .details(pluginID: "x"), "set up, so it moves on to the query")
   }
 
+  @Test func groupsReadyPluginsFirstAndFiltersBySearch() async {
+    let collector = FakeCollector(plugins: [x, youtube])
+    collector.status = ["auth_token": true, "ct0": true]
+    let model = model(collector)
+    await model.load()
+
+    #expect(model.groups.map(\.title) == ["Ready to add", "Needs setup"])
+    #expect(model.groups.map { $0.plugins.map(\.id) } == [["x"], ["youtube"]])
+
+    model.search = "yout"
+    #expect(model.groups.map { $0.plugins.map(\.id) } == [["youtube"]])
+  }
+
   @Test func aReadyPluginGoesStraightToTheQueryAndAddsWithItsInterval() async {
     let collector = FakeCollector(plugins: [x, youtube])
     collector.status = ["auth_token": true, "ct0": true]
@@ -366,6 +388,8 @@ struct AddSourceTests {
     model.add()
 
     #expect(store.calls == ["addSource(x,@bento,false)"])
+    await model.firstFetch?.value
+    #expect(collector.calls.contains("fetchNow"), "fetched right away on the collector Mac")
   }
 
   @Test func aSetupOpenedBeforeTheStatusArrivedMovesOn() async {
@@ -401,5 +425,19 @@ struct AddSourceTests {
 
     #expect(collector.calls == ["refreshPlugins"])
     #expect(model.step == .setup(pluginID: "youtube"), "yt-dlp is still missing")
+  }
+}
+
+@Suite struct ArticlePageTests {
+  @Test func escapesTheHeaderAndKeepsTheArticleHTML() {
+    var item = item()
+    item.title = "Deals <b>& more</b>"
+    item.authorName = "RFD"
+    let html = ArticlePage.html(item: item, body: "<p><img src=\"https://x/1.jpg\"></p>", iconURL: URL(string: "https://x/favicon.ico"))
+
+    #expect(html.contains("<h1>Deals &lt;b&gt;&amp; more&lt;/b&gt;</h1>"))
+    #expect(html.contains(#"<article><p><img src="https://x/1.jpg"></p></article>"#))
+    #expect(html.contains(#"<img class="icon" src="https://x/favicon.ico" alt="">"#))
+    #expect(html.contains("default-src 'none'"))
   }
 }

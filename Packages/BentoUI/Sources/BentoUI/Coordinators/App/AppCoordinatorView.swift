@@ -28,6 +28,7 @@ public struct AppCoordinatorView: View {
     .sheet(item: $coordinator.channelSettings) { model in
       ChannelSettingsView(model: model)
     }
+    .providesSourceIcons()
   }
 }
 

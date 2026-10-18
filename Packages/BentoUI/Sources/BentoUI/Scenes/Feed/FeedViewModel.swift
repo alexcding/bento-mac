@@ -40,6 +40,14 @@ public final class FeedViewModel {
     destination == .bookmarks ? bookmarkRows.map(\.feedRow) : itemRows
   }
 
+  /// One feed's items all carry its name as the author, so the author shows only when it varies,
+  /// or when some item has no title to lead the row instead.
+  var showsAuthor: Bool {
+    let rows = rows
+    guard rows.allSatisfy({ $0.item.title != nil || $0.item.translatedTitle != nil }) else { return true }
+    return Set(rows.lazy.map { $0.item.authorName ?? $0.item.authorHandle }).count > 1
+  }
+
   /// Feed items group by publish day; bookmarks are one list in the order they were saved.
   var days: [FeedDay] {
     destination == .bookmarks ? (rows.isEmpty ? [] : [FeedDay(day: nil, rows: rows)]) : FeedDay.group(rows)

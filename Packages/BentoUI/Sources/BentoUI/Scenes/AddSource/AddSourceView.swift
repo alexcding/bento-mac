@@ -47,37 +47,51 @@ struct AddSourceView: View {
   }
 
   private var chooseList: some View {
-    List(model.plugins) { plugin in
-      Button {
-        model.choose(plugin)
-      } label: {
-        HStack {
-          VStack(alignment: .leading, spacing: 2) {
-            Text(plugin.name)
-            if !plugin.summary.isEmpty {
-              Text(plugin.summary).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+    List {
+      ForEach(model.groups, id: \.title) { group in
+        Section {
+          ForEach(group.plugins) { plugin in
+            Button {
+              model.choose(plugin)
+            } label: {
+              HStack(spacing: 12) {
+                SourceIcon(pluginID: plugin.id)
+                VStack(alignment: .leading, spacing: 2) {
+                  Text(plugin.name)
+                  if !plugin.summary.isEmpty {
+                    Text(plugin.summary).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                  }
+                }
+                Spacer()
+                status(model.setup(for: plugin))
+                Image(systemName: "chevron.forward").font(.caption).foregroundStyle(.tertiary)
+              }
+              .padding(.vertical, 2)
+              .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
           }
-          Spacer()
-          badge(model.setup(for: plugin))
-          Image(systemName: "chevron.forward").foregroundStyle(.tertiary)
+        } header: {
+          if let title = group.title { Text(title) }
         }
-        .contentShape(Rectangle())
       }
-      .buttonStyle(.plain)
+    }
+    .searchable(text: $model.search, placement: .toolbar, prompt: "Search sources")
+    .overlay {
+      if model.groups.isEmpty { ContentUnavailableView.search(text: model.search) }
     }
   }
 
   @ViewBuilder
-  private func badge(_ setup: AddSourceViewModel.Setup) -> some View {
+  private func status(_ setup: AddSourceViewModel.Setup) -> some View {
     if setup.isChecking, setup.missingPrograms.isEmpty {
       ProgressView().controlSize(.small)
     } else if !setup.missingPrograms.isEmpty {
-      Text("Needs \(setup.missingPrograms.map(\.name).formatted())").font(.caption).foregroundStyle(.orange)
+      StatusPill(text: "Needs \(setup.missingPrograms.map(\.name).formatted())", color: .orange)
     } else if setup.needsSignIn {
-      Text("Needs sign-in").font(.caption).foregroundStyle(.orange)
+      StatusPill(text: "Sign in", color: .orange)
     } else if model.checksSetup {
-      Text("Ready").font(.caption).foregroundStyle(.green)
+      StatusPill(text: "Ready", color: .green)
     }
   }
 
@@ -159,5 +173,19 @@ private struct SetupForm: View {
 
   private func binding(_ key: String) -> Binding<String> {
     Binding(get: { model.secretValues[key, default: ""] }, set: { model.secretValues[key] = $0 })
+  }
+}
+
+private struct StatusPill: View {
+  let text: String
+  let color: Color
+
+  var body: some View {
+    Text(text)
+      .font(.caption)
+      .foregroundStyle(color)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 2)
+      .background(color.opacity(0.16), in: Capsule())
   }
 }

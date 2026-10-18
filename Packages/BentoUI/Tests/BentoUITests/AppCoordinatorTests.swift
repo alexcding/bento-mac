@@ -55,14 +55,36 @@ struct AppCoordinatorTests {
     #expect(coordinator.channelSettings?.channelID == channel)
   }
 
-  @Test func addingAChannelSelectsItAndOpensItsSettings() {
+  @Test func aNewChannelIsSavedOnlyWhenCreated() async throws {
     let coordinator = AppCoordinator(container: .test(store: store))
 
     coordinator.sidebar.addChannel()
+    let settings = try #require(coordinator.channelSettings)
+    #expect(settings.isNew)
+    #expect(store.calls.isEmpty, "nothing saved while it is being named")
 
-    #expect(store.calls == ["addChannel(New channel)"])
-    #expect(coordinator.feed.destination == .channel(store.newChannelID))
-    #expect(coordinator.channelSettings?.channelID == store.newChannelID)
+    settings.cancel()
+    #expect(coordinator.channelSettings == nil)
+    #expect(store.calls.isEmpty, "cancelling leaves nothing behind")
+
+    coordinator.sidebar.addChannel()
+    let created = try #require(coordinator.channelSettings)
+    created.name = "  News "
+    created.newIsEnabled = false
+    created.showAddSource()
+    let addSource = try #require(created.addSource)
+    addSource.choose(.rss)
+    addSource.query = "https://example.com/feed.xml"
+    addSource.add()
+    #expect(created.shownSources.map(\.name) == ["example.com"])
+    #expect(store.calls.isEmpty, "a source added to a new channel is not saved yet")
+
+    await created.create()
+
+    #expect(store.calls == ["createChannel(News,false,[\"rss\"],[])"])
+    #expect(!created.isNew)
+    #expect(coordinator.feed.destination == .channel(created.channelID))
+    #expect(coordinator.channelSettings == nil, "the sheet closes once the channel is saved")
   }
 
   @Test func deletingTheSelectedChannelFallsBackToAllItems() {

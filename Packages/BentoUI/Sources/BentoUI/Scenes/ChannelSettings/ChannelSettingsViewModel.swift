@@ -10,11 +10,27 @@ import SQLiteData
 public final class ChannelSettingsViewModel: Identifiable {
   public enum Action: Equatable {
     case dismiss
+    /// A new channel was saved.
+    case created(Channel.ID)
   }
 
   public let channelID: Channel.ID
   public nonisolated var id: Channel.ID { channelID }
   var name = ""
+  /// Not saved yet: sources and destinations are kept here, and nothing is written until
+  /// `create()`.
+  private(set) var isNew: Bool
+  /// The switch while the channel is new.
+  var newIsEnabled = true
+  /// A create is running, so a second Return or click does nothing.
+  private(set) var isCreating = false
+  private(set) var draftSources: [Source] = []
+  private(set) var draftDestinations: [Destination] = []
+  /// New destinations' webhook URLs or bot tokens, saved to the Keychain on `create()`.
+  @ObservationIgnored private var draftSecrets: [Destination.ID: String] = [:]
+
+  var shownSources: [Source] { isNew ? draftSources : sources }
+  var shownDestinations: [Destination] { isNew ? draftDestinations : destinations }
   /// The source being edited, shown as a sheet over the channel settings.
   var sourceEditor: SourceEditorViewModel?
   var newDestinationKind: Destination.Kind = .discord
@@ -38,6 +54,7 @@ public final class ChannelSettingsViewModel: Identifiable {
 
   init(
     channelID: Channel.ID,
+    isNew: Bool = false,
     store: any LibraryStoring,
     statuses: any SourceStatusProviding,
     collector: (any CollectorControlling)?,
@@ -45,6 +62,7 @@ public final class ChannelSettingsViewModel: Identifiable {
     addSources: any AddSourceFeatureFactory
   ) {
     self.channelID = channelID
+    self.isNew = isNew
     self.store = store
     self.statuses = statuses
     self.collector = collector
@@ -53,6 +71,7 @@ public final class ChannelSettingsViewModel: Identifiable {
   }
 
   func load() async {
+    guard !isNew else { return }
     _ = await withErrorReporting {
       try await $channel.load(Channel.find(channelID))
       try await $sources.load(
@@ -89,6 +108,9 @@ public final class ChannelSettingsViewModel: Identifiable {
 
   func showAddSource() {
     let model = addSources.makeAddSource(channelID: channelID)
+    if isNew {
+      model.onDraft = { [weak self] in self?.draftSources.append($0) }
+    }
     model.onAction = { [weak self] action in
       switch action {
       case .dismiss: self?.addSource = nil
@@ -98,14 +120,24 @@ public final class ChannelSettingsViewModel: Identifiable {
   }
 
   func update(_ source: Source) {
+    if isNew {
+      if let index = draftSources.firstIndex(where: { $0.id == source.id }) { draftSources[index] = source }
+      return
+    }
     withErrorReporting { try store.updateSource(source) }
   }
 
   func delete(_ source: Source) {
+    if isNew {
+      draftSources.removeAll { $0.id == source.id }
+      return
+    }
     withErrorReporting { try store.deleteSource(source.id) }
   }
 
+  /// Opens the full source editor, which works on saved sources.
   func edit(_ source: Source) {
+    guard !isNew else { return }
     let editor = sourceEditors.makeSourceEditor(sourceID: source.id)
     editor.onAction = { [weak self] action in
       switch action {
@@ -136,6 +168,17 @@ public final class ChannelSettingsViewModel: Identifiable {
     let kind = newDestinationKind
     let name = newDestinationName.trimmingCharacters(in: .whitespacesAndNewlines)
     let chatID = newDestinationChatID.trimmingCharacters(in: .whitespacesAndNewlines)
+    if isNew {
+      draftDestinations.append(
+        Destination(id: id, channelID: channelID, kind: kind, name: name.isEmpty ? kind.label : name,
+                    chatID: kind.needsChat ? chatID : nil)
+      )
+      if kind.needsSecret { draftSecrets[id] = newDestinationSecret.trimmingCharacters(in: .whitespacesAndNewlines) }
+      newDestinationName = ""
+      newDestinationSecret = ""
+      newDestinationChatID = ""
+      return
+    }
     do {
       if kind.needsSecret {
         try await collector.setSecret(
@@ -161,12 +204,22 @@ public final class ChannelSettingsViewModel: Identifiable {
   }
 
   func update(_ destination: Destination) {
+    if isNew {
+      if let index = draftDestinations.firstIndex(where: { $0.id == destination.id }) {
+        draftDestinations[index] = destination
+      }
+      return
+    }
     withErrorReporting { try store.updateDestination(destination) }
   }
 
   func replaceSecret(of destination: Destination, with value: String) async {
     let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
     guard let collector, canManageDestinations, !value.isEmpty else { return }
+    if isNew {
+      draftSecrets[destination.id] = value
+      return
+    }
     do {
       try await collector.setSecret(pluginID: Destination.secretNamespace, key: destination.secretKey, value: value)
       destinationMessage = nil
@@ -176,6 +229,11 @@ public final class ChannelSettingsViewModel: Identifiable {
   }
 
   func delete(_ destination: Destination) async {
+    if isNew {
+      draftDestinations.removeAll { $0.id == destination.id }
+      draftSecrets[destination.id] = nil
+      return
+    }
     withErrorReporting { try store.deleteDestination(destination.id) }
     guard destination.kind.needsSecret else { return }
     try? await collector?.deleteSecret(pluginID: Destination.secretNamespace, key: destination.secretKey)
@@ -183,6 +241,48 @@ public final class ChannelSettingsViewModel: Identifiable {
 
   func done() {
     saveName()
+    onAction(.dismiss)
+  }
+
+  var canCreate: Bool { !isCreating && !name.trimmingCharacters(in: .whitespaces).isEmpty }
+
+  /// Saves the new channel with everything set up so far, in one write, closes the sheet, and
+  /// fetches its sources on the collector Mac.
+  func create() async {
+    guard isNew, canCreate else { return }
+    isCreating = true
+    defer { isCreating = false }
+    // Secrets first, so a destination never exists without one.
+    do {
+      for destination in draftDestinations where destination.kind.needsSecret {
+        try await collector?.setSecret(
+          pluginID: Destination.secretNamespace, key: destination.secretKey, value: draftSecrets[destination.id] ?? ""
+        )
+      }
+    } catch {
+      destinationMessage = error.localizedDescription
+      return
+    }
+    let channel = Channel(id: channelID, name: name.trimmingCharacters(in: .whitespaces), isEnabled: newIsEnabled)
+    let saved: Bool? = withErrorReporting {
+      try store.createChannel(channel, sources: draftSources, destinations: draftDestinations)
+      return true
+    }
+    guard saved == true else { return }
+    let created = draftSources
+    isNew = false
+    draftSecrets = [:]
+    onAction(.created(channelID))
+    onAction(.dismiss)
+    if let collector, collector.isThisMacCollector {
+      for source in created {
+        Task { _ = try? await collector.fetchNow(sourceID: source.id) }
+      }
+    }
+  }
+
+  /// Closes without saving anything when the channel is new.
+  func cancel() {
     onAction(.dismiss)
   }
 }

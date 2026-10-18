@@ -30,6 +30,44 @@ import Testing
     }
   }
 
+  @Test func createsADraftChannelWithItsSourcesAndDestinationsAtOnce() throws {
+    try database.write { db in
+      try Mutations.addChannel(db, name: "First")
+      let channel = Channel(name: "News", isEnabled: false)
+      let sources = [
+        Mutations.newSource(pluginID: "rss", name: "A", query: "a"),
+        Mutations.newSource(pluginID: "youtube", name: "B", query: "b"),
+      ]
+      let destination = Destination(channelID: UUID(), kind: .discord, name: "Hook")
+
+      try Mutations.createChannel(db, channel, sources: sources, destinations: [destination])
+
+      let saved = try #require(try Channel.find(channel.id).fetchOne(db))
+      #expect(saved.position == 1 && !saved.isEnabled)
+      #expect(try ChannelSource.where { $0.channelID.eq(channel.id) }.order(by: \.position).fetchAll(db).map(\.sourceID)
+        == sources.map(\.id))
+      #expect(try Destination.all.fetchAll(db).map(\.channelID) == [channel.id], "moved onto the channel")
+    }
+  }
+
+  @Test func deletingSourceDeletesItsItemsButNotBookmarks() throws {
+    try database.write { db in
+      let channel = try Mutations.addChannel(db, name: "C")
+      let gone = try Mutations.addSource(db, channelID: channel, pluginID: "rss", name: "G", query: "g")
+      let kept = try Mutations.addSource(db, channelID: channel, pluginID: "rss", name: "K", query: "k")
+      let saved = try insertItem(db, sourceID: gone, detail: "# Saved")
+      _ = try insertItem(db, sourceID: gone)
+      _ = try insertItem(db, sourceID: kept)
+      try Mutations.setBookmarked(db, itemID: saved.id, true)
+
+      try Mutations.deleteSource(db, id: gone)
+
+      #expect(try FeedItem.all.fetchAll(db).map(\.sourceID) == [kept])
+      #expect(try FeedItemDetail.count().fetchOne(db) == 0)
+      #expect(try Bookmark.count().fetchOne(db) == 1, "a bookmark outlives its source")
+    }
+  }
+
   func insertItem(_ db: Database, sourceID: UUID = UUID(), detail: String? = nil) throws -> FeedItem {
     let item = FeedItem(
       id: UUID(), sourceID: sourceID, externalID: UUID().uuidString, title: "T", publishedAt: .now, fetchedAt: .now
@@ -55,7 +93,7 @@ import Testing
       #expect(bookmark.title == "T")
       #expect(bookmark.asFeedItem.id == item.id)
       let detail = try #require(try BookmarkDetail.find(item.id).fetchOne(db))
-      #expect(try DetailCodec.decode(detail.markdown) == "# Saved")
+      #expect(try DetailCodec.decode(detail.markdown).body == "# Saved")
 
       try Mutations.setBookmarked(db, itemID: item.id, false)
       #expect(try Bookmark.count().fetchOne(db) == 0)

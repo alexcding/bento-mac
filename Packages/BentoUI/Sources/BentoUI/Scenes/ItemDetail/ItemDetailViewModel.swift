@@ -25,11 +25,16 @@ public final class ItemDetailViewModel: Identifiable {
   var item: FeedItem? { feedItem ?? bookmark?.asFeedItem }
   var isBookmarked: Bool { bookmark != nil }
 
-  /// The article detail as Markdown, from the item or its bookmarked copy.
-  var detailMarkdown: String? {
+  /// The article detail in its own format, from the item or its bookmarked copy. Decoded once per
+  /// stored blob.
+  var detail: DetailContent? {
     guard let blob = feedDetail?.markdown ?? bookmarkDetail?.markdown else { return nil }
-    return try? DetailCodec.decode(blob)
+    if let decoded, decoded.blob == blob { return decoded.detail }
+    let detail = try? DetailCodec.decode(blob)
+    decoded = (blob, detail)
+    return detail
   }
+  @ObservationIgnored private var decoded: (blob: Data, detail: DetailContent?)?
 
   /// Loads the item and marks it read.
   func load() async {

@@ -12,22 +12,24 @@ func makeDatabase() throws -> any DatabaseWriter {
   )
 }
 
-/// Records calls; returns a fixed channel ID from `addChannel`.
+/// Records calls.
 @MainActor
 final class FakeLibraryStore: LibraryStoring {
   var calls: [String] = []
-  let newChannelID = UUID()
 
-  func addChannel(name: String) throws -> Channel.ID {
-    calls.append("addChannel(\(name))")
-    return newChannelID
+  let newSourceID = Source.ID()
+  func createChannel(_ channel: Channel, sources: [Source], destinations: [Destination]) throws {
+    calls.append(
+      "createChannel(\(channel.name),\(channel.isEnabled),\(sources.map(\.pluginID)),\(destinations.map(\.name)))"
+    )
   }
   func updateChannel(_ channel: Channel) throws { calls.append("updateChannel(\(channel.name),\(channel.isEnabled))") }
   func deleteChannel(_ id: Channel.ID) throws { calls.append("deleteChannel") }
   func addSource(
     channelID: Channel.ID, pluginID: String, query: String, name: String?, intervalMinutes: Int, skipInitialBacklog: Bool
-  ) throws {
+  ) throws -> Source.ID {
     calls.append("addSource(\(pluginID),\(query),\(skipInitialBacklog))")
+    return newSourceID
   }
   func updateSource(_ source: Source) throws { calls.append("updateSource") }
   func deleteSource(_ id: Source.ID) throws { calls.append("deleteSource") }
@@ -59,11 +61,12 @@ func item(
   text: String = "",
   summary: String? = nil,
   translatedTitle: String? = nil,
+  media: [Media] = [],
   publishedAt: Date = Date(timeIntervalSince1970: 1_792_141_200)
 ) -> FeedItem {
   FeedItem(
     id: UUID(), sourceID: sourceID, externalID: UUID().uuidString, title: title, text: text,
-    translatedTitle: translatedTitle, summary: summary, publishedAt: publishedAt, fetchedAt: publishedAt
+    translatedTitle: translatedTitle, summary: summary, media: media, publishedAt: publishedAt, fetchedAt: publishedAt
   )
 }
 
@@ -100,7 +103,10 @@ final class FakeCollector: CollectorControlling {
     calls.append("becomeCollector")
     isThisMacCollector = true
   }
-  func fetchNow(sourceID: Source.ID) async throws -> RunSummary { summary }
+  func fetchNow(sourceID: Source.ID) async throws -> RunSummary {
+    calls.append("fetchNow")
+    return summary
+  }
   func preview(sourceID: Source.ID) async throws -> PreviewResult { PreviewResult(items: [item()], aiFailures: []) }
 }
 

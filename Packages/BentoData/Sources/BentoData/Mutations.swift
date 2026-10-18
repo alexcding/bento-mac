@@ -4,8 +4,7 @@ import SQLiteData
 /// Writes the UI performs. Each takes the write transaction's database.
 public enum Mutations {
   @discardableResult
-  public static func addChannel(_ db: Database, name: String) throws -> Channel.ID {
-    let id = UUID()
+  public static func addChannel(_ db: Database, id: Channel.ID = UUID(), name: String) throws -> Channel.ID {
     let position = try Channel.count().fetchOne(db) ?? 0
     try Channel.insert { Channel(id: id, name: name, isEnabled: true, maxItems: 10, position: position) }
       .execute(db)
@@ -25,7 +24,48 @@ public enum Mutations {
       .fetchAll(db)
     let owned = Set(sourceIDs).subtracting(shared)
     try Channel.find(id).delete().execute(db)
+    try FeedItem.where { $0.sourceID.in(Array(owned)) }.delete().execute(db)
     try Source.where { $0.id.in(Array(owned)) }.delete().execute(db)
+  }
+
+  /// Saves a channel put together before it existed, with its sources and destinations, in one
+  /// write.
+  public static func createChannel(
+    _ db: Database, _ channel: Channel, sources: [Source], destinations: [Destination]
+  ) throws {
+    var channel = channel
+    channel.position = try Channel.count().fetchOne(db) ?? 0
+    try Channel.insert { channel }.execute(db)
+    for (position, source) in sources.enumerated() {
+      try Source.insert { source }.execute(db)
+      try ChannelSource.insert {
+        ChannelSource(id: UUID(), channelID: channel.id, sourceID: source.id, position: position)
+      }
+      .execute(db)
+    }
+    for var destination in destinations {
+      destination.channelID = channel.id
+      try Destination.insert { destination }.execute(db)
+    }
+  }
+
+  /// A new source with the defaults every added source starts from.
+  public static func newSource(
+    pluginID: String, name: String, query: String, intervalMinutes: Int = 30, skipInitialBacklog: Bool = false
+  ) -> Source {
+    Source(
+      id: UUID(),
+      pluginID: pluginID,
+      name: name,
+      query: query,
+      settingsJSON: "{}",
+      intervalMinutes: intervalMinutes,
+      translate: false,
+      summarize: false,
+      fetchDetail: false,
+      isEnabled: true,
+      skipInitialBacklog: skipInitialBacklog
+    )
   }
 
   @discardableResult
@@ -38,23 +78,12 @@ public enum Mutations {
     intervalMinutes: Int = 30,
     skipInitialBacklog: Bool = false
   ) throws -> Source.ID {
-    let id = UUID()
-    try Source.insert {
-      Source(
-        id: id,
-        pluginID: pluginID,
-        name: name,
-        query: query,
-        settingsJSON: "{}",
-        intervalMinutes: intervalMinutes,
-        translate: false,
-        summarize: false,
-        fetchDetail: false,
-        isEnabled: true,
-        skipInitialBacklog: skipInitialBacklog
-      )
-    }
-    .execute(db)
+    let source = newSource(
+      pluginID: pluginID, name: name, query: query, intervalMinutes: intervalMinutes,
+      skipInitialBacklog: skipInitialBacklog
+    )
+    let id = source.id
+    try Source.insert { source }.execute(db)
     let position = try ChannelSource.where { $0.channelID.eq(channelID) }.count().fetchOne(db) ?? 0
     try ChannelSource.insert {
       ChannelSource(id: UUID(), channelID: channelID, sourceID: id, position: position)
@@ -67,7 +96,10 @@ public enum Mutations {
     try Source.update(source).execute(db)
   }
 
+  /// Deletes a source and the items it fetched (with their details and read states). Bookmarks
+  /// keep their own copies.
   public static func deleteSource(_ db: Database, id: Source.ID) throws {
+    try FeedItem.where { $0.sourceID.eq(id) }.delete().execute(db)
     try Source.find(id).delete().execute(db)
   }
 

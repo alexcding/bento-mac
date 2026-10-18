@@ -14,13 +14,16 @@ struct FeedView: View {
           description: Text(model.search.isEmpty && !model.unreadOnly ? "Items appear here as sources are fetched." : "")
         )
       } else {
+        let showsAuthor = model.showsAuthor
         List(selection: $model.selectedItemID) {
           ForEach(model.days, id: \.day) { day in
             Section {
               ForEach(day.rows) { row in
-                FeedCard(model: FeedCardModel(row.item), isRead: row.isRead, isBookmarked: row.isBookmarked)
+                FeedCard(
+                  model: FeedCardModel(row.item), isRead: row.isRead, isBookmarked: row.isBookmarked,
+                  showsAuthor: showsAuthor
+                )
                   .tag(row.id)
-                  .listRowSeparator(.hidden)
                   .contextMenu { rowMenu(row) }
               }
             } header: {

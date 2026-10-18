@@ -8,6 +8,7 @@ use std::time::Instant;
 use async_trait::async_trait;
 use bento_domain::{
     AiConfig, AiProfile, AiTask, NormalizedItem, OutputTarget, SourceConfig, detail,
+    detail::{Detail, DetailFormat},
 };
 use chrono::{DateTime, Duration, Utc};
 use serde_json::{Value, json};
@@ -75,14 +76,25 @@ impl Enricher for Enrichment {
         if source.fetch_detail
             && let Some(extractor) = &self.extractor
         {
-            for item in items.iter_mut().filter(|i| i.body_markdown.is_none()) {
+            // A feed's own HTML or text is often only an excerpt: extraction runs for those and
+            // replaces them when it finds more. A full article from the feed is kept.
+            for item in items
+                .iter_mut()
+                .filter(|i| needs_extraction(i.detail.as_ref()))
+            {
                 let Some(url) = item.item.url.clone() else {
                     continue;
                 };
                 match extractor.extract(&url).await {
                     Ok(Some(markdown)) => {
-                        item.body_markdown = Some(markdown);
-                        report.details_extracted += 1;
+                        // Words, not characters: Markdown link and image syntax would count
+                        // against the feed's tag-free text.
+                        let words = |text: &str| text.split_whitespace().count();
+                        let existing = item.detail.as_ref().and_then(Detail::text);
+                        if existing.is_none_or(|text| words(&markdown) > words(&text)) {
+                            item.detail = Some(Detail::markdown(markdown));
+                            report.details_extracted += 1;
+                        }
                     }
                     Ok(None) => {}
                     Err(_) => report.detail_failures += 1,
@@ -140,9 +152,7 @@ impl AiRunner {
                 Err(error) => error,
             };
             let has_long_detail = batch.iter().any(|i| {
-                i.body_markdown
-                    .as_ref()
-                    .is_some_and(|d| d.chars().count() > REDUCED_DETAIL_CHARS)
+                ai_detail(i).is_some_and(|text| text.chars().count() > REDUCED_DETAIL_CHARS)
             });
             // Authentication failures and paused profiles would fail again; shorter input cannot help.
             if has_long_detail
@@ -257,10 +267,35 @@ fn batches(task: &AiTask, items: &[NormalizedItem]) -> Vec<std::ops::Range<usize
     ranges
 }
 
+/// Feed HTML or text this long is taken to be the whole article, not an excerpt.
+const FULL_ARTICLE_CHARS: usize = 1_500;
+
+/// Whether fetching the page could improve on the detail the source gave.
+fn needs_extraction(detail: Option<&Detail>) -> bool {
+    match detail {
+        None => true,
+        Some(detail) => match detail.format {
+            DetailFormat::Markdown | DetailFormat::Link => false,
+            DetailFormat::Html | DetailFormat::Text => detail
+                .text()
+                .is_some_and(|text| text.chars().count() < FULL_ARTICLE_CHARS),
+        },
+    }
+}
+
+/// The detail AI tasks read and may rewrite: Markdown or plain text. A feed's HTML article keeps its
+/// images and layout, so it is neither sent nor replaced; the item's text already has its excerpt.
+fn ai_detail(item: &NormalizedItem) -> Option<&str> {
+    item.detail
+        .as_ref()
+        .filter(|d| matches!(d.format, DetailFormat::Markdown | DetailFormat::Text))
+        .map(|d| d.body.as_str())
+}
+
 fn input_entry(item: &NormalizedItem, detail_limit: Option<usize>) -> Value {
-    let detail = item.body_markdown.as_deref().map(|d| match detail_limit {
-        Some(limit) => detail::truncate_chars(d, limit).to_owned(),
-        None => d.to_owned(),
+    let detail = ai_detail(item).map(|d| match detail_limit {
+        Some(limit) => detail::truncate_chars(d, limit),
+        None => d,
     });
     json!({
         "id": item.item.id.to_string(),
@@ -335,7 +370,12 @@ fn apply(task: &AiTask, answer: &Value, batch: &mut [NormalizedItem], context: C
                 OutputTarget::Summary => item.item.summary = Some(value),
                 OutputTarget::Text => item.item.text = value,
                 OutputTarget::Detail if context == Context::Reduced => {}
-                OutputTarget::Detail => item.body_markdown = Some(value),
+                // HTML keeps its images and layout, and a link has nothing to rewrite.
+                OutputTarget::Detail
+                    if item.detail.as_ref().is_some_and(|d| {
+                        matches!(d.format, DetailFormat::Html | DetailFormat::Link)
+                    }) => {}
+                OutputTarget::Detail => item.detail = Some(Detail::markdown(value)),
             }
         }
     }
@@ -355,6 +395,22 @@ mod tests {
     use crate::ports::PortError;
 
     /// Scripted provider: answers per profile ID, records requests.
+
+    #[test]
+    fn extracts_only_where_the_source_gave_an_excerpt() {
+        assert!(needs_extraction(None));
+        assert!(needs_extraction(Some(&Detail::html("<p>Short teaser</p>"))));
+        assert!(!needs_extraction(Some(&Detail::html(format!(
+            "<p>{}</p>",
+            "word ".repeat(400)
+        )))));
+        assert!(!needs_extraction(Some(&Detail::markdown("# Any"))));
+        assert!(!needs_extraction(Some(&Detail::new(
+            DetailFormat::Link,
+            "https://x"
+        ))));
+    }
+
     #[derive(Default)]
     struct FakeProvider {
         failures: HashMap<String, AiError>,
@@ -484,7 +540,7 @@ mod tests {
         assert_eq!(batch[2].item.translated_title.as_deref(), Some("T:c"));
         assert_eq!(batch[0].item.summary.as_deref(), Some("S by p"));
         assert_eq!(
-            batch[0].body_markdown, None,
+            batch[0].detail, None,
             "empty answers leave fields unchanged"
         );
         // translate: batches of 2 → 2 calls; summarize: batch of 4 → 1 call.
@@ -539,7 +595,7 @@ mod tests {
             ..Default::default()
         });
         let mut batch = items(&["a"]);
-        batch[0].body_markdown = Some("x".repeat(5_000));
+        batch[0].detail = Some(Detail::markdown("x".repeat(5_000)));
 
         let report = block_on(
             enrichment(provider.clone(), Arc::new(Calls::default())).enrich(
@@ -575,7 +631,7 @@ mod tests {
     fn full_answers_replace_the_detail() {
         let provider = Arc::new(FakeProvider::default());
         let mut batch = items(&["a"]);
-        batch[0].body_markdown = Some("short original".into());
+        batch[0].detail = Some(Detail::markdown("short original"));
 
         block_on(enrichment(provider, Arc::new(Calls::default())).enrich(
             &source(true, false),
@@ -583,7 +639,7 @@ mod tests {
             &mut batch,
         ));
 
-        assert_eq!(batch[0].body_markdown.as_deref(), Some("translated detail"));
+        assert_eq!(batch[0].detail, Some(Detail::markdown("translated detail")));
     }
 
     #[test]
@@ -593,7 +649,7 @@ mod tests {
             ..Default::default()
         });
         let mut batch = items(&["a"]);
-        batch[0].body_markdown = Some("x".repeat(5_000));
+        batch[0].detail = Some(Detail::markdown("x".repeat(5_000)));
 
         let report = block_on(
             enrichment(provider.clone(), Arc::new(Calls::default())).enrich(
@@ -640,7 +696,7 @@ mod tests {
         task.batch_size = 3;
         task.max_input_chars = 250;
         let mut batch = items(&["a", "b", "c", "d"]);
-        batch[1].body_markdown = Some("y".repeat(400));
+        batch[1].detail = Some(Detail::markdown("y".repeat(400)));
 
         let ranges = batches(&task, &batch);
 

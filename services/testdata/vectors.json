@@ -26,6 +26,11 @@
     {
       "markdown": "# 标题\n\nHello **Bento**. 这是一段测试文本。\n\n- one\n- two\n",
       "encoded_base64": "AQFEALv/IyDmoIfpopgKCkhlbGxvICoqQmVudG8qKi4g6L+Z5piv5LiA5q615rWL6K+V5paH5pys44CCCgotIG9uZQotIHR3bwo="
+    },
+    {
+      "format": "html",
+      "markdown": "<article><h1>标题</h1><p>Hello <b>Bento</b>. <img src=\"https://example.com/1.jpg\"></p></article>",
+      "encoded_base64": "AgGzSSwqyUzOSbWzyTC0e7ag/eWiGTb6QKZNgZ1Hak5OvoJNkp1Tal5Jvo1+kp2egk1mbrpCcVGyrVJGSUlBsZW+fmpFYm5BTqpecn6uvqFeVkG6kp2NfgEQwwwGAA=="
     }
   ]
 }

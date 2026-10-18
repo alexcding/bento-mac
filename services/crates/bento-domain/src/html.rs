@@ -209,9 +209,134 @@ pub fn truncate_chars(text: &str, max: usize) -> String {
     }
 }
 
+/// The first real picture in an item body, for feeds that put it in the description rather than
+/// as media: an `<img>` with an `https` (or protocol-relative) `src`, skipping tracking pixels and
+/// icons declared 16px or smaller. Relative sources are skipped (no base to resolve against).
+#[must_use]
+pub fn first_image_src(html: &str) -> Option<String> {
+    let lower = html.to_ascii_lowercase();
+    let mut from = 0;
+    while let Some(found) = lower[from..].find("<img") {
+        let start = from + found + 4;
+        from = start;
+        if !lower[start..].starts_with(|c: char| c.is_ascii_whitespace() || c == '/') {
+            continue; // `<image>`, `<imgx>`
+        }
+        let attrs = tag_attributes(&html[start..]);
+        let value = |name: &str| {
+            attrs
+                .iter()
+                .find(|(key, _)| key.eq_ignore_ascii_case(name))
+                .map(|(_, v)| v.as_str())
+        };
+        let tiny = ["width", "height"].iter().any(|name| {
+            value(name)
+                .and_then(|v| v.trim_end_matches("px").parse::<u32>().ok())
+                .is_some_and(|px| px <= 16)
+        });
+        let Some(src) = value("src").map(|src| src.trim().replace("&amp;", "&")) else {
+            continue;
+        };
+        if tiny {
+            continue;
+        }
+        if src.starts_with("https://") {
+            return Some(src);
+        }
+        if let Some(path) = src.strip_prefix("//") {
+            return Some(format!("https://{path}"));
+        }
+    }
+    None
+}
+
+/// A tag's `name=value` pairs, read up to its closing `>` (which may not appear inside quotes).
+fn tag_attributes(tag: &str) -> Vec<(String, String)> {
+    let mut attrs = Vec::new();
+    let mut chars = tag.char_indices().peekable();
+    loop {
+        while chars
+            .next_if(|(_, c)| c.is_ascii_whitespace() || *c == '/')
+            .is_some()
+        {}
+        let Some(&(start, first)) = chars.peek() else {
+            break;
+        };
+        if first == '>' {
+            break;
+        }
+        let mut end = start;
+        while let Some((at, c)) =
+            chars.next_if(|(_, c)| !c.is_ascii_whitespace() && !matches!(c, '=' | '>' | '/'))
+        {
+            end = at + c.len_utf8();
+        }
+        let name = tag[start..end].to_owned();
+        if end == start {
+            chars.next(); // stray character
+            continue;
+        }
+        while chars.next_if(|(_, c)| c.is_ascii_whitespace()).is_some() {}
+        if chars.next_if(|(_, c)| *c == '=').is_none() {
+            attrs.push((name, String::new()));
+            continue;
+        }
+        while chars.next_if(|(_, c)| c.is_ascii_whitespace()).is_some() {}
+        let value = match chars.peek() {
+            Some(&(at, quote @ ('"' | '\''))) => {
+                chars.next();
+                let close = tag[at + 1..].find(quote).map_or(tag.len(), |i| at + 1 + i);
+                while chars.next_if(|(i, _)| *i <= close).is_some() {}
+                tag[at + 1..close].to_owned()
+            }
+            Some(&(at, _)) => {
+                let mut end = at;
+                while let Some((i, c)) =
+                    chars.next_if(|(_, c)| !c.is_ascii_whitespace() && *c != '>')
+                {
+                    end = i + c.len_utf8();
+                }
+                tag[at..end].to_owned()
+            }
+            None => String::new(),
+        };
+        attrs.push((name, value));
+    }
+    attrs
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn first_image_src_finds_real_pictures() {
+        assert_eq!(
+            first_image_src(r#"<a href="x"><img alt="a > b" width="95" src="https://d.example/1.jpg?a=1&amp;b=2"></a><img src="https://d.example/2.jpg">"#).as_deref(),
+            Some("https://d.example/1.jpg?a=1&b=2")
+        );
+        assert_eq!(
+            first_image_src("<IMG SRC='//cdn.example/x.png'/>").as_deref(),
+            Some("https://cdn.example/x.png")
+        );
+        assert_eq!(
+            first_image_src(r#"<img data-src="/lazy.png" src="https://ok.example/y.gif">"#)
+                .as_deref(),
+            Some("https://ok.example/y.gif"),
+            "data-src is not src"
+        );
+        assert_eq!(
+            first_image_src(r#"<image src="https://no/1.png"><img src="http://insecure/2.png"><img width="1" height="1" src="https://pixel/t.gif"><img src=https://ok.example/z.jpg>"#).as_deref(),
+            Some("https://ok.example/z.jpg"),
+            "skips <image>, http and tracking pixels"
+        );
+        assert_eq!(first_image_src("<p>No pictures</p>"), None);
+        assert_eq!(
+            first_image_src(r#"<img 图 标题="说明" src="https://ok.example/中.jpg">"#).as_deref(),
+            Some("https://ok.example/中.jpg"),
+            "non-ASCII attribute names do not split a character"
+        );
+    }
 
     #[test]
     fn body_strips_every_well_formed_tag() {

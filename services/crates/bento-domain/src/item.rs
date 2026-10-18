@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::detail::Detail;
 use crate::stable_id::feed_item_id;
 
 /// One post as returned by a source plugin. Only `external_id` is required.
@@ -18,7 +19,10 @@ pub struct RawItem {
     pub media: Vec<Media>,
     pub published_at: Option<DateTime<Utc>>,
     pub language: Option<String>,
+    /// The full post as Markdown. Older form of `detail`, used when `detail` is absent.
     pub body_markdown: Option<String>,
+    /// The full post in any format: an article's HTML, Markdown, plain text or a link.
+    pub detail: Option<Detail>,
     pub reference: Option<Box<Reference>>,
     /// Platform-specific fields. Stored by plugins for their own use, never required by the UI.
     pub extra: serde_json::Map<String, serde_json::Value>,
@@ -97,11 +101,11 @@ pub struct FeedItem {
     pub fetched_at: DateTime<Utc>,
 }
 
-/// A feed item plus the full Markdown body the platform provided, if any.
+/// A feed item plus the full detail the platform provided, if any.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NormalizedItem {
     pub item: FeedItem,
-    pub body_markdown: Option<String>,
+    pub detail: Option<Detail>,
 }
 
 impl RawItem {
@@ -135,10 +139,11 @@ impl RawItem {
             language: self.language,
             fetched_at,
         };
-        out.push(NormalizedItem {
-            item,
-            body_markdown: non_empty(self.body_markdown),
-        });
+        let detail = self
+            .detail
+            .filter(|detail| !detail.body.trim().is_empty())
+            .or_else(|| non_empty(self.body_markdown).map(Detail::markdown));
+        out.push(NormalizedItem { item, detail });
         out
     }
 }
@@ -235,6 +240,6 @@ mod tests {
         };
         let out = raw.normalize(Uuid::from_u128(1), at(9));
         assert_eq!(out[0].item.title, None);
-        assert_eq!(out[0].body_markdown, None);
+        assert_eq!(out[0].detail, None);
     }
 }

@@ -28,8 +28,13 @@ The executable is looked up in the plugin's `bin/`, next to `bento-collector` (b
 
 Result: `{"items": [raw item, …]}`. A raw item has `external_id` (required), `url`, `title`, `text`,
 `author {name, handle, avatar_url}`, `media [{type: image|video, url, thumbnail_url, duration,
-embed_url, width, height}]`, `published_at` (RFC 3339), `language`, `body_markdown`, and
+embed_url, width, height}]`, `published_at` (RFC 3339), `language`, `detail`, and
 `reference {type: quote|repost, item}`.
+
+`detail` is the full post for the item's own page: `{"format": "html"|"markdown"|"text"|"link",
+"body": "…"}`. HTML is shown as a reading page (scripts off, kept up to 60,000 characters), Markdown
+and text natively (12,000), and a link as a button that opens it. The older `body_markdown` string is
+still read, as Markdown, when `detail` is absent.
 
 ### `auth/begin` and `auth/step`
 

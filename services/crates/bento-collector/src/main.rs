@@ -357,7 +357,7 @@ async fn run_once(
         let items: Vec<serde_json::Value> = prepared
             .items
             .iter()
-            .map(|n| serde_json::json!({"item": n.item, "detail": n.body_markdown}))
+            .map(|n| serde_json::json!({"item": n.item, "detail": n.detail}))
             .collect();
         serde_json::json!({
             "fetched": prepared.fetched, "too_old": prepared.too_old, "items": items,
@@ -543,9 +543,9 @@ fn emit_test_item(store: &SqliteStore, title: String) -> Result<()> {
         external_id: format!("test-{}", now.as_millis()),
         title: Some(title),
         text: "Written by `bento-collector emit-test-item`.".into(),
-        body_markdown: Some(
-            "# Test item\n\nIf you can read this on another device, sync works.".into(),
-        ),
+        detail: Some(bento_domain::detail::Detail::markdown(
+            "# Test item\n\nIf you can read this on another device, sync works.",
+        )),
         ..RawItem::default()
     };
     let report = Ingestor::new(store, SystemClock).ingest(

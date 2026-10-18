@@ -176,10 +176,11 @@ or defaulted), last-edit-wins per column, every `BLOB` column syncs as a `CKAsse
 - `FeedItem`: sourceID, externalID, url, title, text, translatedTitle, summary, authorName,
   authorHandle, authorAvatarURL, media (JSON `[Media]`), referenceItemID, publishedAt,
   isPublishedAtEstimated, language, fetchedAt.
-- `FeedItemDetail`: feedItemID (primary key), markdown (`BLOB`, deflate with a 1-byte format header).
+- `FeedItemDetail`: feedItemID (primary key), markdown (`BLOB`: a codec byte, then deflate; codec
+  `0x01` is Markdown, `0x02` adds a format byte for HTML, plain text or a link).
 - `Bookmark`: a full copy of the item (same ID, no foreign key), so bookmarks survive the item
   being purged or its source deleted; `createdAt`.
-- `BookmarkDetail`: bookmarkID (primary key), markdown copied from the item's detail.
+- `BookmarkDetail`: bookmarkID (primary key), the item's detail blob, copied.
 - `ReadState`: feedItemID, readAt. Same database, so unread counts and filters are plain joins.
 
 Local only: `outboxCursors` in `bento.sqlite` (Mac); `collector.sqlite` (outbox, seen items,

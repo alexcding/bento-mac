@@ -220,7 +220,10 @@ struct SettingsTests {
     let login = model.login!
 
     login.start()
-    try? await Task.sleep(for: .milliseconds(50))
+    // Wait for the events to play out rather than a fixed time, which a busy test run outlasts.
+    for _ in 0..<200 where !login.isDone {
+      try? await Task.sleep(for: .milliseconds(10))
+    }
 
     #expect(login.isDone)
     login.close()

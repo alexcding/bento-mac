@@ -1,5 +1,5 @@
 {
-  "originHash" : "66455d54b4a48c7eaebf3c10702ad0eb04201f3811d6e0b91d3702d2e6cd5681",
+  "originHash" : "2ef1ec071f961b4a289d139488e0ffea2f19fa33c3726fb05d7ddfa90ee14bda",
   "pins" : [
     {
       "identity" : "combine-schedulers",
@@ -20,6 +20,42 @@
       }
     },
     {
+      "identity" : "highlightr",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/raspu/Highlightr.git",
+      "state" : {
+        "revision" : "05e7fcc63b33925cd0c1faaa205cdd5681e7bbef",
+        "version" : "2.3.0"
+      }
+    },
+    {
+      "identity" : "jxl-coder-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/awxkee/jxl-coder-swift",
+      "state" : {
+        "revision" : "617f566af9c0529d1c3e557fe667ff9b47b68d90",
+        "version" : "1.9.1"
+      }
+    },
+    {
+      "identity" : "markdownview",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/LiYanan2004/MarkdownView",
+      "state" : {
+        "revision" : "6f452b55635246224a3329362e4e11cd3d592a30",
+        "version" : "3.0.0"
+      }
+    },
+    {
+      "identity" : "richtext",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/LiYanan2004/RichText.git",
+      "state" : {
+        "revision" : "a2fb191988f6f2ce60574962c96a0e1846c36dae",
+        "version" : "1.0.0"
+      }
+    },
+    {
       "identity" : "sqlite-data",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/pointfreeco/sqlite-data",
@@ -35,6 +71,15 @@
       "state" : {
         "revision" : "82440fa0a8b1c381a6d1e8e0fc7bbba53ec63204",
         "version" : "1.1.1"
+      }
+    },
+    {
+      "identity" : "swift-cmark",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftlang/swift-cmark.git",
+      "state" : {
+        "revision" : "08ddb528923cc1a6527e02b7a1aee9e516ca749a",
+        "version" : "0.9.0"
       }
     },
     {
@@ -89,6 +134,15 @@
       "state" : {
         "revision" : "b23bb4493c439d3e05152bc167014235ba3d47fc",
         "version" : "2.1.2"
+      }
+    },
+    {
+      "identity" : "swift-markdown",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftlang/swift-markdown.git",
+      "state" : {
+        "revision" : "25cb61d3482054b09ae76ca4f281b1bfe7fe5a43",
+        "version" : "0.9.0"
       }
     },
     {

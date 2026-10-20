@@ -133,43 +133,4 @@ import Testing
     #expect(metadata.summary == "just setting up")
     #expect(metadata.siteName == "X")
   }
-
-  @Test func linkURLAcceptsOnlyAWholeLink() {
-    #expect(DocMarkdown.linkURL("https://a.com/x") == "https://a.com/x")
-    #expect(DocMarkdown.linkURL("see https://a.com") == nil)
-  }
-}
-
-@Suite struct LinkPreviewMutationsTests {
-  let database: any DatabaseWriter
-
-  init() throws {
-    let url = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString).sqlite")
-    database = try BentoDatabase.open(at: url, iCloudContainer: nil)
-  }
-
-  @Test func savingTwiceKeepsOneRowWithTheLatestTitle() throws {
-    try database.write { db in
-      let doc = try Mutations.addDoc(db, folderID: nil, title: "D", blocks: [DocContent(kind: .link, text: "https://a.com")])
-      let block = try #require(try Mutations.docBlocks(db, docID: doc).first)
-
-      try Mutations.saveLinkPreview(db, DocLinkPreview(blockID: block.id, url: "https://a.com", metadata: LinkMetadata(title: "One")))
-      try Mutations.saveLinkPreview(db, DocLinkPreview(blockID: block.id, url: "https://a.com", metadata: LinkMetadata(title: "Two")))
-
-      #expect(try DocLinkPreview.count().fetchOne(db) == 1)
-      #expect(try DocLinkPreview.find(block.id).fetchOne(db)?.title == "Two")
-    }
-  }
-
-  @Test func deletingTheBlockDeletesItsPreview() throws {
-    try database.write { db in
-      let doc = try Mutations.addDoc(db, folderID: nil, title: "D", blocks: [DocContent(kind: .link, text: "https://a.com")])
-      let block = try #require(try Mutations.docBlocks(db, docID: doc).first)
-      try Mutations.saveLinkPreview(db, DocLinkPreview(blockID: block.id, url: "https://a.com", metadata: LinkMetadata(title: "One")))
-
-      try Mutations.deleteDocBlocks(db, ids: [block.id])
-
-      #expect(try DocLinkPreview.count().fetchOne(db) == 0)
-    }
-  }
 }

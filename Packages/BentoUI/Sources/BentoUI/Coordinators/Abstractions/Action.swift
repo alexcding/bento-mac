@@ -5,5 +5,5 @@ public enum Action {
   case feed(FeedViewModel.Action)
   case channelSettings(ChannelSettingsViewModel.Action)
   case docList(DocListViewModel.Action)
-  case docEditor(DocEditorViewModel.Action)
+  case docEditor(DocPageViewModel.Action)
 }

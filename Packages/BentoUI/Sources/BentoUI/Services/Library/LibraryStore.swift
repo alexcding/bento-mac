@@ -7,7 +7,7 @@ import SQLiteData
 @MainActor
 public protocol LibraryStoring {
   /// Saves a new channel with the sources and destinations set up before it was saved.
-  func createChannel(_ channel: Channel, sources: [Source], destinations: [Destination]) throws
+  func createChannel(_ channel: Channel, sources: [Source], destinations: [BentoData.Destination]) throws
   func updateChannel(_ channel: Channel) throws
   func deleteChannel(_ id: Channel.ID) throws
   /// Adds a source of `pluginID` to a channel; `name` defaults from the query.
@@ -22,9 +22,9 @@ public protocol LibraryStoring {
   ) throws -> Source.ID
   func updateSource(_ source: Source) throws
   func deleteSource(_ id: Source.ID) throws
-  func addDestination(id: Destination.ID, channelID: Channel.ID, kind: Destination.Kind, name: String, chatID: String?) throws
-  func updateDestination(_ destination: Destination) throws
-  func deleteDestination(_ id: Destination.ID) throws
+  func addDestination(id: BentoData.Destination.ID, channelID: Channel.ID, kind: BentoData.Destination.Kind, name: String, chatID: String?) throws
+  func updateDestination(_ destination: BentoData.Destination) throws
+  func deleteDestination(_ id: BentoData.Destination.ID) throws
   func setBookmarked(_ itemID: FeedItem.ID, _ bookmarked: Bool) throws
   func setRead(_ itemIDs: [FeedItem.ID], _ read: Bool) throws
   func markAllRead(channelID: Channel.ID?) throws
@@ -42,7 +42,7 @@ public struct NativeLibraryStore: LibraryStoring {
     self.database = database
   }
 
-  public func createChannel(_ channel: Channel, sources: [Source], destinations: [Destination]) throws {
+  public func createChannel(_ channel: Channel, sources: [Source], destinations: [BentoData.Destination]) throws {
     try database.write { try Mutations.createChannel($0, channel, sources: sources, destinations: destinations) }
   }
 
@@ -87,17 +87,17 @@ public struct NativeLibraryStore: LibraryStoring {
     try database.write { try Mutations.deleteSource($0, id: id) }
   }
 
-  public func addDestination(id: Destination.ID, channelID: Channel.ID, kind: Destination.Kind, name: String, chatID: String?) throws {
+  public func addDestination(id: BentoData.Destination.ID, channelID: Channel.ID, kind: BentoData.Destination.Kind, name: String, chatID: String?) throws {
     try database.write {
       _ = try Mutations.addDestination($0, id: id, channelID: channelID, kind: kind, name: name, chatID: chatID)
     }
   }
 
-  public func updateDestination(_ destination: Destination) throws {
+  public func updateDestination(_ destination: BentoData.Destination) throws {
     try database.write { try Mutations.updateDestination($0, destination) }
   }
 
-  public func deleteDestination(_ id: Destination.ID) throws {
+  public func deleteDestination(_ id: BentoData.Destination.ID) throws {
     try database.write { try Mutations.deleteDestination($0, id: id) }
   }
 

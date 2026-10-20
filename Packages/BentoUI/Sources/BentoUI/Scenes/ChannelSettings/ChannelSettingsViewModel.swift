@@ -25,15 +25,15 @@ public final class ChannelSettingsViewModel: Identifiable {
   /// A create is running, so a second Return or click does nothing.
   private(set) var isCreating = false
   private(set) var draftSources: [Source] = []
-  private(set) var draftDestinations: [Destination] = []
+  private(set) var draftDestinations: [BentoData.Destination] = []
   /// New destinations' webhook URLs or bot tokens, saved to the Keychain on `create()`.
-  @ObservationIgnored private var draftSecrets: [Destination.ID: String] = [:]
+  @ObservationIgnored private var draftSecrets: [BentoData.Destination.ID: String] = [:]
 
   var shownSources: [Source] { isNew ? draftSources : sources }
-  var shownDestinations: [Destination] { isNew ? draftDestinations : destinations }
+  var shownDestinations: [BentoData.Destination] { isNew ? draftDestinations : destinations }
   /// The source being edited, shown as a sheet over the channel settings.
   var sourceEditor: SourceEditorViewModel?
-  var newDestinationKind: Destination.Kind = .discord
+  var newDestinationKind: BentoData.Destination.Kind = .discord
   var newDestinationName = ""
   /// The webhook URL or bot token, saved to the collector's Keychain.
   var newDestinationSecret = ""
@@ -45,7 +45,7 @@ public final class ChannelSettingsViewModel: Identifiable {
 
   @ObservationIgnored @FetchOne var channel: Channel?
   @ObservationIgnored @FetchAll var sources: [Source]
-  @ObservationIgnored @FetchAll var destinations: [Destination]
+  @ObservationIgnored @FetchAll var destinations: [BentoData.Destination]
   @ObservationIgnored private let store: any LibraryStoring
   @ObservationIgnored private let statuses: any SourceStatusProviding
   @ObservationIgnored let collector: (any CollectorControlling)?
@@ -80,7 +80,7 @@ public final class ChannelSettingsViewModel: Identifiable {
           .order(by: \.name)
           .select { $0 }
       )
-      try await $destinations.load(Destination.where { $0.channelID.eq(channelID) }.order(by: \.name))
+      try await $destinations.load(BentoData.Destination.where { $0.channelID.eq(channelID) }.order(by: \.name))
       name = channel?.name ?? ""
     }
   }
@@ -170,7 +170,7 @@ public final class ChannelSettingsViewModel: Identifiable {
     let chatID = newDestinationChatID.trimmingCharacters(in: .whitespacesAndNewlines)
     if isNew {
       draftDestinations.append(
-        Destination(id: id, channelID: channelID, kind: kind, name: name.isEmpty ? kind.label : name,
+        BentoData.Destination(id: id, channelID: channelID, kind: kind, name: name.isEmpty ? kind.label : name,
                     chatID: kind.needsChat ? chatID : nil)
       )
       if kind.needsSecret { draftSecrets[id] = newDestinationSecret.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -182,7 +182,7 @@ public final class ChannelSettingsViewModel: Identifiable {
     do {
       if kind.needsSecret {
         try await collector.setSecret(
-          pluginID: Destination.secretNamespace,
+          pluginID: BentoData.Destination.secretNamespace,
           key: id.uuidString.lowercased(),
           value: newDestinationSecret.trimmingCharacters(in: .whitespacesAndNewlines)
         )
@@ -203,7 +203,7 @@ public final class ChannelSettingsViewModel: Identifiable {
     }
   }
 
-  func update(_ destination: Destination) {
+  func update(_ destination: BentoData.Destination) {
     if isNew {
       if let index = draftDestinations.firstIndex(where: { $0.id == destination.id }) {
         draftDestinations[index] = destination
@@ -213,7 +213,7 @@ public final class ChannelSettingsViewModel: Identifiable {
     withErrorReporting { try store.updateDestination(destination) }
   }
 
-  func replaceSecret(of destination: Destination, with value: String) async {
+  func replaceSecret(of destination: BentoData.Destination, with value: String) async {
     let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
     guard let collector, canManageDestinations, !value.isEmpty else { return }
     if isNew {
@@ -221,14 +221,14 @@ public final class ChannelSettingsViewModel: Identifiable {
       return
     }
     do {
-      try await collector.setSecret(pluginID: Destination.secretNamespace, key: destination.secretKey, value: value)
+      try await collector.setSecret(pluginID: BentoData.Destination.secretNamespace, key: destination.secretKey, value: value)
       destinationMessage = nil
     } catch {
       destinationMessage = error.localizedDescription
     }
   }
 
-  func delete(_ destination: Destination) async {
+  func delete(_ destination: BentoData.Destination) async {
     if isNew {
       draftDestinations.removeAll { $0.id == destination.id }
       draftSecrets[destination.id] = nil
@@ -236,7 +236,7 @@ public final class ChannelSettingsViewModel: Identifiable {
     }
     withErrorReporting { try store.deleteDestination(destination.id) }
     guard destination.kind.needsSecret else { return }
-    try? await collector?.deleteSecret(pluginID: Destination.secretNamespace, key: destination.secretKey)
+    try? await collector?.deleteSecret(pluginID: BentoData.Destination.secretNamespace, key: destination.secretKey)
   }
 
   func done() {
@@ -256,7 +256,7 @@ public final class ChannelSettingsViewModel: Identifiable {
     do {
       for destination in draftDestinations where destination.kind.needsSecret {
         try await collector?.setSecret(
-          pluginID: Destination.secretNamespace, key: destination.secretKey, value: draftSecrets[destination.id] ?? ""
+          pluginID: BentoData.Destination.secretNamespace, key: destination.secretKey, value: draftSecrets[destination.id] ?? ""
         )
       }
     } catch {
@@ -287,7 +287,7 @@ public final class ChannelSettingsViewModel: Identifiable {
   }
 }
 
-extension Destination.Kind {
+extension BentoData.Destination.Kind {
   static let addable: [Self] = [.discord, .telegramBot, .telegramAccount, .x]
 
   /// A webhook URL or bot token; posting as you uses the Telegram or X plugin's sign-in instead.

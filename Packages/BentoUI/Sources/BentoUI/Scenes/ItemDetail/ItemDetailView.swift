@@ -9,7 +9,9 @@ struct ItemDetailView: View {
   var body: some View {
     Group {
       let detail = model.detail
-      if let item = model.item, let detail, detail.format == .html {
+      if !model.isReady {
+        Color.clear
+      } else if let item = model.item, let detail, detail.format == .html {
         ArticleWebView(
           html: ArticlePage.html(item: item, body: detail.body, iconURL: iconURL(item)),
           baseURL: item.url.flatMap(URL.init(string:))
@@ -37,8 +39,11 @@ struct ItemDetailView: View {
                 if let url = URL(string: detail.body) { Link("Read the Full Article", destination: url) }
               case .text:
                 Text(detail.body).textSelection(.enabled)
-              case .markdown, .html:
-                Text(Self.attributed(detail.body)).textSelection(.enabled)
+              case .markdown:
+                DocMarkdownSections(markdown: detail.body, baseURL: item.url.flatMap(URL.init(string:))).equatable()
+              case .html:
+                // Shown in the web view above, in place of this page.
+                EmptyView()
               }
             }
           }
@@ -64,11 +69,6 @@ struct ItemDetailView: View {
   /// The item's own picture, else its site's favicon.
   private func iconURL(_ item: FeedItem) -> URL? {
     item.authorAvatarURL.flatMap(URL.init(string:)) ?? sourceIcons[item.sourceID]?.siteIcons.last
-  }
-
-  static func attributed(_ markdown: String) -> AttributedString {
-    (try? AttributedString(markdown: markdown, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
-      ?? AttributedString(markdown)
   }
 
   @ToolbarContentBuilder

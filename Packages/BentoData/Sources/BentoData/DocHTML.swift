@@ -1,26 +1,66 @@
 import Foundation
 
-/// Turns an article's HTML into doc blocks, for saving it to a doc: paragraphs, headings, list
-/// items, quotes and code become blocks; bold, italic, code and links become inline Markdown.
-/// Scripts, styles and anything else are dropped.
+/// Turns an article's HTML into Markdown, for saving it to a doc: paragraphs, headings, list
+/// items, quotes, code, images, bold, italic and links. Scripts, styles and anything else are
+/// dropped.
 public enum DocHTML {
-  public static func blocks(from html: String) -> [DocContent] {
+  /// The article as Markdown, one blank line between blocks, its images at their full address.
+  public static func markdown(from html: String, baseURL: URL? = nil) -> String {
+    let (converted, code) = markdownText(html)
+    var text = converted
+      .split(separator: "\n", omittingEmptySubsequences: false)
+      .map { $0.trimmingCharacters(in: .whitespaces) }
+      .joined(separator: "\n")
+      .replacingOccurrences(of: #"\n{3,}"#, with: "\n\n", options: .regularExpression)
+      .replacingOccurrences(of: #"(?<=\S) {2,}(?=\S)"#, with: " ", options: .regularExpression)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    // Code goes back last, after the tidying, so its indentation and blank lines stay as written.
+    text = replace(#"\x{E000}(\d+)\x{E001}"#, in: text) { match in
+      Int(match[1]).flatMap { code.indices.contains($0) ? "```\n" + code[$0] + "\n```" : nil } ?? ""
+    }
+    return DocMarkdown.absoluteImages(text, baseURL: baseURL)
+  }
+
+  /// The article as Markdown, its code blocks still behind placeholders.
+  private static func markdownText(_ html: String) -> (String, [String]) {
     var text = html
     // Whole elements that carry nothing to read.
     for tag in ["script", "style", "head", "noscript", "svg"] {
       text = replace(#"<\#(tag)\b[\s\S]*?</\#(tag)>"#, in: text, with: "")
     }
-    // Code blocks keep their text as is, fenced.
+    // Code blocks keep their text exactly: set aside behind placeholders while the rest is
+    // converted, and put back last.
+    var code: [String] = []
     text = replace(#"<pre\b[^>]*>([\s\S]*?)</pre>"#, in: text) { match in
-      "\n```\n" + LinkMetadata.decodeEntities(stripTags(match[1])) + "\n```\n"
+      code.append(LinkMetadata.decodeEntities(stripTags(match[1])))
+      return "\n\u{E000}\(code.count - 1)\u{E001}\n"
     }
-    // Inline styles and links, as the Markdown blocks store.
-    text = replace(#"<(strong|b)\b[^>]*>([\s\S]*?)</\1>"#, in: text) { "**" + $0[2] + "**" }
-    text = replace(#"<(em|i)\b[^>]*>([\s\S]*?)</\1>"#, in: text) { "_" + $0[2] + "_" }
-    text = replace(#"<code\b[^>]*>([\s\S]*?)</code>"#, in: text) { "`" + $0[1] + "`" }
-    text = replace(#"<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)</a>"#, in: text) { match in
-      let label = stripTags(match[2]).trimmingCharacters(in: .whitespacesAndNewlines)
-      return label.isEmpty ? "" : "[\(label)](\(match[1]))"
+    // Images get lines of their own, as Markdown images, which become file blocks to fetch.
+    text = replace(#"<img\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>"#, in: text) { match in
+      match[1].hasPrefix("data:") ? "" : "\n![](\(match[1]))\n"
+    }
+    // Inline styles, tag by tag rather than as pairs, so unclosed tags cost no backtracking; a
+    // stray marker reads back as plain text.
+    // Spaces just inside a tag go outside its marker, as Markdown emphasis cannot start before a
+    // space or end after one; a pair with nothing inside is dropped.
+    text = replace(#"<(strong|b)\b[^>]*>(\s*)</(strong|b)>"#, in: text, with: "$2")
+    text = replace(#"<(em|i)\b[^>]*>(\s*)</(em|i)>"#, in: text, with: "$2")
+    text = replace(#"<(strong|b)\b[^>]*>(\s*)"#, in: text, with: "$2**")
+    text = replace(#"(\s*)</(strong|b)>"#, in: text, with: "**$1")
+    text = replace(#"<(em|i)\b[^>]*>(\s*)"#, in: text, with: "$2_")
+    text = replace(#"(\s*)</(em|i)>"#, in: text, with: "_$1")
+    text = replace(#"</?code\b[^>]*>"#, in: text, with: "`")
+    // Links are short; the bound keeps an unclosed one from scanning the rest of the page.
+    text = replace(#"<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]{0,2000}?)</a>"#, in: text) { match in
+      // A linked image keeps its own line, outside the link: a link cannot hold a file block.
+      var images: [String] = []
+      let rest = replace(#"!\[\]\([^)\n]*\)"#, in: match[2]) {
+        images.append($0[0])
+        return " "
+      }
+      let label = stripTags(rest).trimmingCharacters(in: .whitespacesAndNewlines)
+      let link = label.isEmpty ? "" : "[\(label)](\(match[1]))"
+      return images.reversed().map { "\n\($0)\n" }.joined() + link
     }
     // Block elements each start a line, with the Markdown that marks their kind.
     for level in 1...6 {
@@ -33,7 +73,7 @@ public enum DocHTML {
     text = replace(#"<br\s*/?>"#, in: text, with: "\n")
     text = replace(#"</?(p|div|section|article|header|footer|ul|ol|table|tr|figure|figcaption)\b[^>]*>"#, in: text, with: "\n")
     text = LinkMetadata.decodeEntities(stripTags(text))
-    return DocMarkdown.blocks(from: text)
+    return (text, code)
   }
 
   private static func stripTags(_ text: String) -> String {

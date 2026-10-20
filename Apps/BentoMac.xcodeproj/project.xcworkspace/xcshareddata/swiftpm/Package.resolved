@@ -1,5 +1,5 @@
 {
-  "originHash" : "6bbd3a5737b0f452e2f818fff93ca6d5893c47b938582ebff83453d5dc98ff1f",
+  "originHash" : "41c51b0e7fcfd4708ad216b317a09a81c94498da457be34e522bbc07482d640d",
   "pins" : [
     {
       "identity" : "combine-schedulers",
@@ -17,6 +17,15 @@
       "state" : {
         "revision" : "b83108d10f42680d78f23fe4d4d80fc88dab3212",
         "version" : "7.11.1"
+      }
+    },
+    {
+      "identity" : "jxl-coder-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/awxkee/jxl-coder-swift",
+      "state" : {
+        "revision" : "617f566af9c0529d1c3e557fe667ff9b47b68d90",
+        "version" : "1.9.1"
       }
     },
     {

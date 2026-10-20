@@ -7,7 +7,9 @@ struct FeedView: View {
 
   var body: some View {
     Group {
-      if model.rows.isEmpty {
+      if !model.hasLoaded {
+        Color.clear
+      } else if model.rows.isEmpty {
         ContentUnavailableView(
           emptyTitle,
           systemImage: model.search.isEmpty ? "tray" : "magnifyingglass",

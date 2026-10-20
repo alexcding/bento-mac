@@ -14,28 +14,13 @@ public struct AppCoordinatorView: View {
       SidebarView(model: coordinator.sidebar)
         .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: sidebarMaxWidth)
     } content: {
-      Group {
-        switch coordinator.content {
-        case .feed(let feed): FeedView(model: feed)
-        case .docs(let docs): DocListView(model: docs)
-        }
-      }
-      .id(coordinator.content.destination)
-      .navigationSplitViewColumnWidth(min: 320, ideal: 420)
+      coordinator.content.view()
+        // A new screen replaces the last at once; nothing animates in from the one before.
+        .transaction(value: coordinator.content) { $0.animation = nil }
+        .navigationSplitViewColumnWidth(min: 320, ideal: 420)
     } detail: {
-      if coordinator.content.destination.isDocs {
-        if let editor = coordinator.docEditor {
-          DocEditorView(model: editor)
-            .id(editor.docID)
-        } else {
-          ContentUnavailableView("Select a doc", systemImage: "doc.text")
-        }
-      } else if let detail = coordinator.itemDetail {
-        ItemDetailView(model: detail)
-          .id(detail.itemID)
-      } else {
-        ContentUnavailableView("Select an item", systemImage: "doc.text")
-      }
+      coordinator.detail.view()
+        .transaction(value: coordinator.detail) { $0.animation = nil }
     }
     .sheet(item: $coordinator.channelSettings) { model in
       ChannelSettingsView(model: model)

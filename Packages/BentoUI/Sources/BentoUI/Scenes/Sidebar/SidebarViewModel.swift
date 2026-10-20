@@ -31,8 +31,6 @@ public final class SidebarViewModel {
     case selected(SidebarDestination)
     case openChannelSettings(Channel.ID)
     case newChannel
-    /// Show this doc, already in the selected folder.
-    case openDoc(Doc.ID)
   }
 
   public var selection: SidebarDestination = .all {
@@ -75,17 +73,20 @@ public final class SidebarViewModel {
       .group(by: \.id)
       .order(by: \.position)
       .leftJoin(Doc.all) { $1.folderID.eq($0.id) }
-      .select { DocFolderRow.Columns(folder: $0, docCount: $1.id.count(filter: $1.parentBlockID.is(nil))) },
+      .select { DocFolderRow.Columns(folder: $0, docCount: $1.id.count()) },
     animation: .default
   )
   var folderRows: [DocFolderRow]
 
   @ObservationIgnored
-  @FetchOne(Doc.where { $0.parentBlockID.is(nil) }.count())
+  @FetchOne(Doc.count())
   var docCount = 0
 
   /// The folder whose name is being edited in place.
   var renamingFolderID: DocFolder.ID?
+
+  /// The folder whose delete is waiting for confirmation.
+  var folderToDelete: DocFolderRow?
 
   @ObservationIgnored private let store: any LibraryStoring
   @ObservationIgnored private let docs: any DocsStoring
@@ -108,16 +109,6 @@ public final class SidebarViewModel {
     // A folder whose parent has not synced yet shows at the top level until it arrives.
     let orphans = folderRows.filter { $0.folder.parentID.map { !ids.contains($0) } ?? false }
     return nodes(nil) + orphans.map { DocFolderNode(row: $0, children: nodes($0.id).nilIfEmpty) }
-  }
-
-  /// Today's daily note: its folder selected and the note open.
-  func openToday() {
-    withErrorReporting {
-      let (folderID, docID) = try docs.dailyNote()
-      // Where the note is now: it may have been moved out of Daily Notes.
-      selection = folderID.map(SidebarDestination.docFolder) ?? .allDocs
-      onAction(.openDoc(docID))
-    }
   }
 
   func addFolder(parentID: DocFolder.ID? = nil) {

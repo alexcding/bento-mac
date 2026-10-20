@@ -20,7 +20,7 @@ public protocol DocListFeatureFactory {
 
 @MainActor
 public protocol DocEditorFeatureFactory {
-  func makeDocEditor(docID: Doc.ID) -> DocEditorViewModel
+  func makeDocEditor(docID: Doc.ID) -> DocPageViewModel
 }
 
 @MainActor
@@ -65,9 +65,8 @@ public struct NativeDocListFeatureFactory: DocListFeatureFactory {
 
 public struct NativeDocEditorFeatureFactory: DocEditorFeatureFactory {
   let docs: any DocsStoring
-  let linkPreviewer: any LinkPreviewing
-  public func makeDocEditor(docID: Doc.ID) -> DocEditorViewModel {
-    DocEditorViewModel(docID: docID, store: docs, linkPreviewer: linkPreviewer)
+  public func makeDocEditor(docID: Doc.ID) -> DocPageViewModel {
+    DocPageViewModel(docID: docID, store: docs)
   }
 }
 
@@ -174,8 +173,7 @@ public struct AppContainer {
     store: any LibraryStoring,
     docs: any DocsStoring,
     statuses: any SourceStatusProviding,
-    collector: (any CollectorControlling)? = nil,
-    linkPreviewer: any LinkPreviewing = NativeLinkPreviewer()
+    collector: (any CollectorControlling)? = nil
   ) -> AppContainer {
     AppContainer(
       sidebar: NativeSidebarFeatureFactory(store: store, docs: docs),
@@ -183,7 +181,7 @@ public struct AppContainer {
       itemDetail: NativeItemDetailFeatureFactory(store: store, docs: docs),
       channelSettings: NativeChannelSettingsFeatureFactory(store: store, statuses: statuses, collector: collector),
       docList: NativeDocListFeatureFactory(docs: docs),
-      docEditor: NativeDocEditorFeatureFactory(docs: docs, linkPreviewer: linkPreviewer)
+      docEditor: NativeDocEditorFeatureFactory(docs: docs)
     )
   }
 }

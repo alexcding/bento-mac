@@ -37,13 +37,6 @@ struct SidebarView: View {
       }
 
       Section {
-        Button {
-          model.openToday()
-        } label: {
-          Label("Today", systemImage: "calendar")
-        }
-        .buttonStyle(.plain)
-        .help("Open today's daily note")
         Label("All docs", systemImage: "doc.text")
           .badge(model.docCount)
           .sidebarRow(.allDocs, selection: model.selection)
@@ -59,7 +52,7 @@ struct SidebarView: View {
               Button("Rename") { model.renamingFolderID = node.id }
               Button("New Subfolder") { model.addFolder(parentID: node.id) }
               Divider()
-              Button("Delete Folder and Its Docs", role: .destructive) { model.deleteFolder(node.id) }
+              Button("Delete Folder…", role: .destructive) { model.folderToDelete = node.row }
             }
         }
         Button {
@@ -82,6 +75,15 @@ struct SidebarView: View {
       Button("Delete Channel", role: .destructive) { model.delete(channel) }
     } message: { _ in
       Text("Its sources and their items are deleted too, unless another channel uses them. Bookmarks are kept.")
+    }
+    .confirmationDialog(
+      "Delete “\(model.folderToDelete?.folder.name ?? "")”?",
+      isPresented: Binding(get: { model.folderToDelete != nil }, set: { if !$0 { model.folderToDelete = nil } }),
+      presenting: model.folderToDelete
+    ) { row in
+      Button("Delete Folder and Its Docs", role: .destructive) { model.deleteFolder(row.id) }
+    } message: { _ in
+      Text("Its subfolders and every doc in them are deleted too, on all your devices.")
     }
     .sidebarStyle()
   }

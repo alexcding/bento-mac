@@ -330,6 +330,40 @@ public enum BentoDatabase {
       try #sql(#"CREATE INDEX "index_docs_on_updatedAt" ON "docs"("updatedAt")"#).execute(db)
       try #sql(#"CREATE INDEX "index_docBlocks_on_docID_position" ON "docBlocks"("docID", "position")"#).execute(db)
     }
+    // Databases made by early builds of "Add docs" lack the daily note day and covers; anything
+    // else already has them.
+    migrator.registerMigration("Complete docs") { db in
+      if try !db.columns(in: "docs").contains(where: { $0.name == "dailyNoteDay" }) {
+        try #sql(#"ALTER TABLE "docs" ADD COLUMN "dailyNoteDay" TEXT"#).execute(db)
+      }
+      try #sql(
+        """
+        CREATE TABLE IF NOT EXISTS "docCovers" (
+          "docID" TEXT PRIMARY KEY NOT NULL REFERENCES "docs"("id") ON DELETE CASCADE,
+          "image" BLOB NOT NULL
+        ) STRICT
+        """
+      )
+      .execute(db)
+    }
+    migrator.registerMigration("Docs as Markdown") { db in
+      try #sql(#"ALTER TABLE "docs" ADD COLUMN "body" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT ''"#).execute(db)
+      try #sql(
+        """
+        CREATE TABLE "docAssets" (
+          "id" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE DEFAULT (uuid()),
+          "docID" TEXT NOT NULL REFERENCES "docs"("id") ON DELETE CASCADE,
+          "name" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT '',
+          "contentType" TEXT NOT NULL ON CONFLICT REPLACE DEFAULT '',
+          "data" BLOB NOT NULL,
+          "createdAt" TEXT NOT NULL
+        ) STRICT
+        """
+      )
+      .execute(db)
+      try #sql(#"CREATE INDEX "index_docAssets_on_docID" ON "docAssets"("docID")"#).execute(db)
+      try DocBodyMigration.run(db)
+    }
     return migrator
   }
 }
@@ -364,10 +398,8 @@ extension DependencyValues {
       AppSettings.self,
       DocFolder.self,
       Doc.self,
-      DocBlock.self,
-      DocFile.self,
-      DocLinkPreview.self,
       DocCover.self,
+      DocAsset.self,
       containerIdentifier: iCloudContainer
     )
   }

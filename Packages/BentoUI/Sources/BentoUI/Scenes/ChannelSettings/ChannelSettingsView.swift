@@ -96,7 +96,7 @@ struct ChannelSettingsView: View {
     VStack(alignment: .leading) {
       HStack {
         Picker("Kind", selection: $model.newDestinationKind) {
-          ForEach(Destination.Kind.addable, id: \.self) { Text($0.label).tag($0) }
+          ForEach(BentoData.Destination.Kind.addable, id: \.self) { Text($0.label).tag($0) }
         }
         .labelsHidden()
         .fixedSize()
@@ -154,9 +154,9 @@ private struct SourceRow: View {
 }
 
 private struct DestinationRow: View {
-  let destination: Destination
+  let destination: BentoData.Destination
   let canManage: Bool
-  let update: (Destination) -> Void
+  let update: (BentoData.Destination) -> Void
   let replaceSecret: (String) -> Void
   let delete: () -> Void
   @State private var newSecret = ""
@@ -197,7 +197,7 @@ private struct DestinationRow: View {
     }
   }
 
-  private func binding<Value>(_ keyPath: WritableKeyPath<Destination, Value>) -> Binding<Value> {
+  private func binding<Value>(_ keyPath: WritableKeyPath<BentoData.Destination, Value>) -> Binding<Value> {
     Binding(
       get: { destination[keyPath: keyPath] },
       set: { value in

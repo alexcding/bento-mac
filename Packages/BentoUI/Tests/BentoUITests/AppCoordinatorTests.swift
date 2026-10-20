@@ -10,6 +10,26 @@ import Testing
 struct AppCoordinatorTests {
   let store = FakeLibraryStore()
 
+  @Test func eachColumnHoldsTheDestinationForTheSelection() {
+    let coordinator = AppCoordinator(container: .test(store: store))
+    let feed = coordinator.content
+    #expect(coordinator.detail == .placeholder("Select an item", symbol: "doc.text"))
+
+    coordinator.feed?.selectedItemID = UUID()
+    guard case .itemDetail = coordinator.detail else {
+      Issue.record("no item detail")
+      return
+    }
+
+    coordinator.sidebar.selection = .allDocs
+    guard case .docList = coordinator.content else {
+      Issue.record("no doc list")
+      return
+    }
+    #expect(coordinator.content != feed)
+    #expect(coordinator.detail == .placeholder("Select a doc", symbol: "doc.text"))
+  }
+
   @Test func selectingADestinationReplacesTheFeedAndClearsTheItem() {
     let coordinator = AppCoordinator(container: .test(store: store))
     coordinator.feed?.selectedItemID = UUID()

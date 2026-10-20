@@ -9,7 +9,9 @@ struct DocListView: View {
 
   var body: some View {
     Group {
-      if model.docs.isEmpty {
+      if !model.hasLoaded {
+        Color.clear
+      } else if model.docs.isEmpty {
         ContentUnavailableView {
           Label(model.search.isEmpty ? "No docs yet" : "No results", systemImage: model.search.isEmpty ? "doc.text" : "magnifyingglass")
         } description: {
@@ -37,19 +39,9 @@ struct DocListView: View {
     .toolbar {
       ToolbarItemGroup {
         Button("Import", systemImage: "square.and.arrow.down") { importing = true }
-        Menu {
-          Button("Blank Doc", systemImage: "doc") { model.addDoc() }
-          Divider()
-          ForEach(DocTemplate.all) { template in
-            Button(template.name, systemImage: template.symbol) { model.addDoc(from: template) }
-          }
-        } label: {
-          Label("New Doc", systemImage: "square.and.pencil")
-        } primaryAction: {
-          model.addDoc()
-        }
-        .help("New doc (⌘N); hold for templates")
-        .keyboardShortcut("n")
+        Button("New Doc", systemImage: "square.and.pencil") { model.addDoc() }
+          .help("New doc (⌘N)")
+          .keyboardShortcut("n")
       }
     }
     .fileImporter(isPresented: $importing, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
@@ -65,7 +57,7 @@ struct DocListView: View {
   }
 
   @ViewBuilder
-  private func rowMenu(_ doc: Doc) -> some View {
+  private func rowMenu(_ doc: DocListRow) -> some View {
     Button(doc.isStarred ? "Unstar" : "Star") { model.toggleStarred(doc) }
     Menu("Move To") {
       Button("No Folder") { model.move(doc, to: nil) }
@@ -82,7 +74,7 @@ struct DocListView: View {
 
 /// A doc in the list: its title, the start of its text, and when it was last edited.
 private struct DocRow: View {
-  let doc: Doc
+  let doc: DocListRow
   let snippet: String?
 
   var body: some View {
@@ -97,7 +89,7 @@ private struct DocRow: View {
           Image(systemName: "star.fill").foregroundStyle(.yellow).imageScale(.small)
         }
       }
-      Text(snippet?.nonEmpty ?? "No text yet")
+      Text(snippet.flatMap { $0.isEmpty ? nil : $0 } ?? "No text yet")
         .font(.callout)
         .foregroundStyle(snippet?.isEmpty == false ? .secondary : .tertiary)
         .lineLimit(2)

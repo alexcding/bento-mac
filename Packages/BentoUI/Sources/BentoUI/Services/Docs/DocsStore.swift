@@ -10,36 +10,24 @@ public protocol DocsStoring {
   func addFolder(name: String, parentID: DocFolder.ID?) throws -> DocFolder.ID
   func renameFolder(_ id: DocFolder.ID, name: String) throws
   func deleteFolder(_ id: DocFolder.ID) throws
-  func addDoc(folderID: DocFolder.ID?, title: String, blocks: [DocContent]) throws -> Doc.ID
-  /// Today's note in the Daily Notes folder, made if there is none yet.
-  func dailyNote() throws -> (folderID: DocFolder.ID?, docID: Doc.ID)
+  func addDoc(folderID: DocFolder.ID?, title: String, body: String) throws -> Doc.ID
   /// Sets or (with nil) removes a doc's cover image.
   func setCover(_ docID: Doc.ID, image: Data?) async throws
   func renameDoc(_ id: Doc.ID, title: String) throws
+  /// Saves a doc's Markdown.
+  func setBody(_ id: Doc.ID, body: String) throws
+  /// Keeps an image or file with a doc, off the main thread; its Markdown links to the asset.
+  func addAsset(docID: Doc.ID, file: DocFileData) async throws -> DocAsset.ID
+  /// Deletes the images and files kept with a doc that no doc links to any more.
+  func removeUnusedAssets(docID: Doc.ID) async throws
   func moveDoc(_ id: Doc.ID, folderID: DocFolder.ID?) throws
   func setStarred(_ id: Doc.ID, _ starred: Bool) throws
   func deleteDoc(_ id: Doc.ID) throws
-  func insertBlocks(docID: Doc.ID, after: DocBlock.ID?, _ contents: [DocContent]) throws -> [DocBlock]
-  func updateBlock(_ block: DocBlock) throws
-  /// Inserts copies of `templates`, looks included, with new ids.
-  func insertBlocks(docID: Doc.ID, after: DocBlock.ID?, templates: [DocBlock]) throws -> [DocBlock]
-  func deleteBlocks(_ ids: [DocBlock.ID]) throws
-  func moveBlock(_ id: DocBlock.ID, after: DocBlock.ID?) throws
-  /// Moves blocks, in order, after `after`; returns them in their new places.
-  func moveBlocks(_ ids: [DocBlock.ID], after: DocBlock.ID?) throws -> [DocBlock]
-  /// What deleting these blocks would take with it, for undo.
-  func snapshot(blockIDs: [DocBlock.ID]) throws -> DocSnapshot
-  func restore(_ snapshot: DocSnapshot) throws
-  /// Writes blocks back exactly as given, place included.
-  func restoreBlocks(_ blocks: [DocBlock]) throws
-  /// Adds a page or card block with a new doc inside it.
-  func insertPage(docID: Doc.ID, after: DocBlock.ID?, kind: DocBlock.Kind) throws -> (block: DocBlock, pageID: Doc.ID)
-  /// The doc a page or card block holds, made if it has none yet.
-  func docInside(_ blockID: DocBlock.ID) throws -> Doc.ID?
-  func saveLinkPreview(_ preview: DocLinkPreview) throws
-  /// Attaches a file as a `.file` block after `after`.
-  func insertFile(docID: Doc.ID, after: DocBlock.ID?, file: DocFileData) async throws -> DocBlock
-  /// A new doc from a file: Markdown and plain text become blocks; anything else is attached.
+  /// Keeps the web images of a saved article with its doc (as JPEG XL where that loses nothing);
+  /// one that cannot be fetched is shown from where it is.
+  func fetchImages(docID: Doc.ID) async
+  /// A new doc from a file: Markdown and plain text become its text; anything else is kept with
+  /// it and linked.
   func importFile(_ url: URL, folderID: DocFolder.ID?) async throws -> Doc.ID
 }
 
@@ -74,13 +62,8 @@ public struct NativeDocsStore: DocsStoring {
     try database.write { try Mutations.deleteDocFolder($0, id: id) }
   }
 
-  public func addDoc(folderID: DocFolder.ID?, title: String, blocks: [DocContent]) throws -> Doc.ID {
-    try database.write { try Mutations.addDoc($0, folderID: folderID, title: title, blocks: blocks) }
-  }
-
-  public func dailyNote() throws -> (folderID: DocFolder.ID?, docID: Doc.ID) {
-    let title = Date.now.formatted(.dateTime.weekday(.wide).month(.wide).day().year())
-    return try database.write { try Mutations.dailyNote($0, title: title) }
+  public func addDoc(folderID: DocFolder.ID?, title: String, body: String) throws -> Doc.ID {
+    try database.write { try Mutations.addDoc($0, folderID: folderID, title: title, body: body) }
   }
 
   public func setCover(_ docID: Doc.ID, image: Data?) async throws {
@@ -89,6 +72,30 @@ public struct NativeDocsStore: DocsStoring {
 
   public func renameDoc(_ id: Doc.ID, title: String) throws {
     try database.write { try Mutations.renameDoc($0, id: id, title: title) }
+  }
+
+  public func setBody(_ id: Doc.ID, body: String) throws {
+    try database.write { try Mutations.setDocBody($0, id: id, body: body) }
+  }
+
+  public func addAsset(docID: Doc.ID, file: DocFileData) async throws -> DocAsset.ID {
+    try await database.write {
+      try Mutations.addDocAsset($0, docID: docID, name: file.name, contentType: file.type.identifier, data: file.data)
+    }
+  }
+
+  public func removeUnusedAssets(docID: Doc.ID) async throws {
+    // Ten minutes covers a picture still being read and stored, or another device's edit that
+    // links it arriving after the picture itself. The newer unused ones left are looked at again
+    // once they are that old, while the app runs; nothing else is touched then.
+    let cutoff = Date.now.addingTimeInterval(-600)
+    let result = try await database.write { try Mutations.removeUnusedDocAssets($0, docID: docID, madeBefore: cutoff) }
+    guard !result.newer.isEmpty else { return }
+    let (database, newer) = (database, result.newer)
+    Task.detached {
+      try? await Task.sleep(for: .seconds(600))
+      _ = try? await database.write { try Mutations.removeUnusedDocAssets($0, ids: newer) }
+    }
   }
 
   public func moveDoc(_ id: Doc.ID, folderID: DocFolder.ID?) throws {
@@ -103,63 +110,35 @@ public struct NativeDocsStore: DocsStoring {
     try database.write { try Mutations.deleteDoc($0, id: id) }
   }
 
-  public func insertBlocks(docID: Doc.ID, after: DocBlock.ID?, _ contents: [DocContent]) throws -> [DocBlock] {
-    try database.write { try Mutations.insertDocBlocks($0, docID: docID, after: after, contents) }
-  }
-
-  public func insertBlocks(docID: Doc.ID, after: DocBlock.ID?, templates: [DocBlock]) throws -> [DocBlock] {
-    try database.write { try Mutations.insertDocBlocks($0, docID: docID, after: after, templates: templates) }
-  }
-
-  public func updateBlock(_ block: DocBlock) throws {
-    try database.write { try Mutations.updateDocBlock($0, block) }
-  }
-
-  public func deleteBlocks(_ ids: [DocBlock.ID]) throws {
-    try database.write { try Mutations.deleteDocBlocks($0, ids: ids) }
-  }
-
-  public func moveBlock(_ id: DocBlock.ID, after: DocBlock.ID?) throws {
-    try database.write { try Mutations.moveDocBlock($0, id: id, after: after) }
-  }
-
-  public func moveBlocks(_ ids: [DocBlock.ID], after: DocBlock.ID?) throws -> [DocBlock] {
-    try database.write { try Mutations.moveDocBlocks($0, ids: ids, after: after) }
-  }
-
-  public func snapshot(blockIDs: [DocBlock.ID]) throws -> DocSnapshot {
-    try database.read { try Mutations.docSnapshot($0, blockIDs: blockIDs) }
-  }
-
-  public func restore(_ snapshot: DocSnapshot) throws {
-    try database.write { try Mutations.restore($0, snapshot) }
-  }
-
-  public func restoreBlocks(_ blocks: [DocBlock]) throws {
-    try database.write { try Mutations.restoreDocBlocks($0, blocks) }
-  }
-
-  public func insertPage(docID: Doc.ID, after: DocBlock.ID?, kind: DocBlock.Kind) throws -> (block: DocBlock, pageID: Doc.ID) {
-    try database.write { try Mutations.insertDocPage($0, docID: docID, after: after, kind: kind) }
-  }
-
-  public func docInside(_ blockID: DocBlock.ID) throws -> Doc.ID? {
-    try database.write { try Mutations.docInside($0, blockID: blockID) }
-  }
-
-  public func saveLinkPreview(_ preview: DocLinkPreview) throws {
-    try database.write { try Mutations.saveLinkPreview($0, preview) }
-  }
-
   // Files of up to 100 MB are read and written off the main thread.
+  public func fetchImages(docID: Doc.ID) async {
+    let body = (try? await database.read { try Doc.find(docID).select(\.body).fetchOne($0) }) ?? nil
+    let addresses = Array(DocMarkdown.webImageURLs(body ?? "").prefix(DocImageDownloader.maxImages))
+    // A few at a time: quicker than one by one, without opening thirty connections at once.
+    await withTaskGroup(of: Void.self) { group in
+      var next = addresses.makeIterator()
+      func add() -> Bool {
+        guard let address = next.next() else { return false }
+        group.addTask { await fetchImage(docID: docID, address: address) }
+        return true
+      }
+      for _ in 0..<4 where add() {}
+      for await _ in group { _ = add() }
+    }
+  }
 
-  public func insertFile(docID: Doc.ID, after: DocBlock.ID?, file: DocFileData) async throws -> DocBlock {
-    try await database.write {
-      try Mutations.insertDocFile(
-        $0, docID: docID, after: after, name: file.name, contentType: file.type.identifier, data: file.data
+  private nonisolated func fetchImage(docID: Doc.ID, address: String) async {
+    let key = "\(docID) \(address)"
+    guard DocImageDownloader.start(key) else { return }
+    defer { DocImageDownloader.finish(key) }
+    guard let file = try? await DocImageDownloader.download(address) else { return }
+    _ = try? await database.write {
+      try Mutations.attachWebImage(
+        $0, docID: docID, address: address, name: file.name, contentType: file.type.identifier, data: file.data
       )
     }
   }
+
 
   public func importFile(_ url: URL, folderID: DocFolder.ID?) async throws -> Doc.ID {
     let file = try await DocFileReader.read(url)
@@ -167,19 +146,20 @@ public struct NativeDocsStore: DocsStoring {
     if file.type.conforms(to: .plainText) || ["md", "markdown"].contains(url.pathExtension.lowercased()),
       let text = String(data: file.data, encoding: .utf8)
     {
-      var blocks = DocMarkdown.blocks(from: text)
-      // A leading top-level heading is the doc's title, as `DocMarkdown.markdown` writes it.
-      let heading = blocks.first.flatMap { $0.kind == .title ? $0.text : nil }
-      if heading != nil { blocks.removeFirst() }
-      return try addDoc(folderID: folderID, title: heading ?? title, blocks: blocks)
+      // A leading top-level heading is the doc's title, as an exported doc writes it.
+      var lines = text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
+      var heading: String?
+      if let first = lines.first, first.hasPrefix("# ") {
+        heading = String(first.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+        lines.removeFirst()
+      }
+      let body = lines.joined(separator: "\n").trimmingCharacters(in: .newlines)
+      return try addDoc(folderID: folderID, title: heading ?? title, body: body)
     }
     return try await database.write { db in
-      let docID = try Mutations.addDoc(db, folderID: folderID, title: title, blocks: [DocContent(kind: .file, text: file.name)])
-      let blockID = try Mutations.docBlocks(db, docID: docID)[0].id
-      try DocFile.insert {
-        DocFile(blockID: blockID, name: file.name, contentType: file.type.identifier, data: file.data)
-      }
-      .execute(db)
+      let docID = try Mutations.addDoc(db, folderID: folderID, title: title)
+      let id = try Mutations.addDocAsset(db, docID: docID, name: file.name, contentType: file.type.identifier, data: file.data)
+      try Mutations.setDocBody(db, id: docID, body: DocAsset.markdown(id: id, name: file.name, isImage: file.type.conforms(to: .image)))
       return docID
     }
   }
@@ -193,12 +173,27 @@ public struct DocFileData: Sendable {
   public let data: Data
 }
 
-/// Reads files of up to 100 MB off the main thread.
+/// Reads files of up to 100 MB off the main thread. A file added as an image is stored as JPEG XL
+/// where that loses nothing (`DocImageEncoder`); any other file is kept byte for byte.
 enum DocFileReader {
   static let maxFileSize = 100_000_000
 
-  static func read(_ url: URL) async throws -> DocFileData {
-    try await Task.detached { try readNow(url) }.value
+  static func read(_ url: URL, asImage: Bool = false) async throws -> DocFileData {
+    try await Task.detached {
+      let file = try readNow(url)
+      return asImage ? DocImageEncoder.encode(file) : file
+    }.value
+  }
+
+  /// A cover: the image at most `maxPixelSize` on its long side, as it is shown as a banner.
+  static func readCover(_ url: URL, maxPixelSize: Int = 2000) async throws -> DocFileData {
+    try await Task.detached {
+      let file = try readNow(url)
+      guard let cover = DocImageEncoder.encodeScaled(file, maxPixelSize: maxPixelSize) else {
+        throw DocsStoreError.notAnImage(file.name)
+      }
+      return cover
+    }.value
   }
 
   private nonisolated static func readNow(_ url: URL) throws -> DocFileData {

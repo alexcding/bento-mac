@@ -55,7 +55,12 @@ public final class FeedViewModel {
   }
 
   /// Reloads for the current search and unread filter. Called by the view when either changes.
+  /// Set once the first load is done, so the view shows nothing for that moment rather than its
+  /// empty state flashing up before the content.
+  private(set) var hasLoaded = false
+
   func reload() async {
+    defer { hasLoaded = true }
     _ = await withErrorReporting {
       if destination == .bookmarks {
         try await $bookmarkRows.load(FeedQuery.bookmarks(search: search, unreadOnly: unreadOnly))

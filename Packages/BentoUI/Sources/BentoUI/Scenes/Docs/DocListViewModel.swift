@@ -19,7 +19,7 @@ public final class DocListViewModel {
   }
   @ObservationIgnored public var onAction: (Action) -> Void = { _ in }
 
-  @ObservationIgnored @FetchAll var docs: [Doc]
+  @ObservationIgnored @FetchAll var docs: [DocListRow]
   @ObservationIgnored @FetchOne var folder: DocFolder?
   @ObservationIgnored @FetchAll(DocFolder.order(by: \.name)) var folders: [DocFolder]
   @ObservationIgnored private let store: any DocsStoring
@@ -42,11 +42,17 @@ public final class DocListViewModel {
   }
 
   /// Reloads for the current search. Called by the view when it changes.
+  /// Set once the first load is done, so the view shows nothing for that moment rather than its
+  /// empty state flashing up before the content.
+  private(set) var hasLoaded = false
+
   func reload() async {
     _ = await withErrorReporting {
       if let folderID { try await $folder.load(DocFolder.find(folderID)) }
       try await $docs.load(DocQuery.docs(folderID: folderID, starredOnly: destination == .starredDocs, search: search))
     }
+    // The rows show with their titles; their snippets fill in after.
+    hasLoaded = true
     await loadSnippets()
   }
 
@@ -77,9 +83,9 @@ public final class DocListViewModel {
   }
 
   /// A new, empty doc here, selected so it opens for typing.
-  func addDoc(from template: DocTemplate? = nil) {
+  func addDoc() {
     withErrorReporting {
-      let id = try store.addDoc(folderID: folderID, title: "", blocks: template?.blocks ?? [])
+      let id = try store.addDoc(folderID: folderID, title: "", body: "")
       if destination == .starredDocs { try store.setStarred(id, true) }
       selectedDocID = id
     }
@@ -96,15 +102,15 @@ public final class DocListViewModel {
     }
   }
 
-  func toggleStarred(_ doc: Doc) {
+  func toggleStarred(_ doc: DocListRow) {
     withErrorReporting { try store.setStarred(doc.id, !doc.isStarred) }
   }
 
-  func move(_ doc: Doc, to folderID: DocFolder.ID?) {
+  func move(_ doc: DocListRow, to folderID: DocFolder.ID?) {
     withErrorReporting { try store.moveDoc(doc.id, folderID: folderID) }
   }
 
-  func delete(_ doc: Doc) {
+  func delete(_ doc: DocListRow) {
     if selectedDocID == doc.id { selectedDocID = nil }
     withErrorReporting { try store.deleteDoc(doc.id) }
   }
@@ -122,33 +128,48 @@ enum DocDrag {
 }
 
 enum DocQuery {
-  /// Each doc's first lines of text, plain, cut to a preview's length.
+  /// Each doc's opening text, plain, cut to a preview's length. Only the start of each body is
+  /// read.
   static func snippets(_ db: Database, docIDs: [Doc.ID]) throws -> [Doc.ID: String] {
-    let textKinds: [DocBlock.Kind] = [.text, .bullet, .numbered, .todo, .toggle]
-    let blocks = try DocBlock
-      .where { $0.docID.in(docIDs) && $0.kind.in(textKinds) && $0.text.neq("") }
-      .order { ($0.docID, $0.position) }
+    let rows = try Doc
+      .where { $0.id.in(docIDs) }
+      .select { ($0.id, #sql("substr(\($0.body), 1, 800)", as: String.self)) }
       .fetchAll(db)
     var snippets: [Doc.ID: String] = [:]
-    for block in blocks {
-      let current = snippets[block.docID] ?? ""
-      guard current.count < 160 else { continue }
-      let line = DocInline.plainText(DocLink.retitle(block.text, titles: [:]) { title, _ in title })
-      snippets[block.docID] = current.isEmpty ? line : current + " " + line
+    for (id, start) in rows {
+      let text = plainText(start)
+      if !text.isEmpty { snippets[id] = String(text.prefix(160)) }
     }
-    return snippets.mapValues { String($0.prefix(160)) }
+    return snippets
   }
 
-  /// Docs whose title or any block contains `search`, most recently edited first.
-  static func docs(folderID: DocFolder.ID?, starredOnly: Bool, search: String) -> some Statement<Doc> {
+  /// Markdown as the words it shows: markers, link addresses, images and code fences left out.
+  static func plainText(_ markdown: String) -> String {
+    var lines: [String] = []
+    var inCode = false
+    for line in markdown.split(separator: "\n") {
+      var line = line.trimmingCharacters(in: .whitespaces)
+      if line.hasPrefix("```") || line.hasPrefix("~~~") {
+        inCode.toggle()
+        continue
+      }
+      if inCode || line.hasPrefix("|") || line.hasPrefix("<") || line.hasPrefix("![") || line.allSatisfy({ "-*_=".contains($0) }) {
+        continue
+      }
+      line = line.replacingOccurrences(of: #"^(#{1,6}|>|[-*+]( \[[ xX]\])?|\d+\.)\s+"#, with: "", options: .regularExpression)
+      line = line.replacingOccurrences(of: #"!?\[([^\]]*)\]\([^)]*\)"#, with: "$1", options: .regularExpression)
+      line = line.replacingOccurrences(of: #"(\*\*|__|~~|`|\*|_)"#, with: "", options: .regularExpression)
+      if !line.isEmpty { lines.append(line) }
+    }
+    return lines.joined(separator: " ")
+  }
+
+  /// Docs whose title or text contains `search`, most recently edited first.
+  static func docs(folderID: DocFolder.ID?, starredOnly: Bool, search: String) -> some Statement<DocListRow> {
     let needle = search.trimmingCharacters(in: .whitespaces).lowercased()
     return Doc
       .where {
         if let folderID { $0.folderID.eq(folderID) }
-      }
-      .where {
-        // Pages inside other docs show in their parent, unless searched for.
-        if needle.isEmpty { $0.parentBlockID.is(nil) }
       }
       .where {
         if starredOnly { $0.isStarred }
@@ -156,15 +177,25 @@ enum DocQuery {
       .where { doc in
         if !needle.isEmpty {
           #sql(
-            """
-            (instr(bentoLower(\(doc.title)), \(bind: needle)) > 0 OR \(doc.id) IN \
-            (SELECT "docID" FROM "docBlocks" WHERE instr(bentoLower("text"), \(bind: needle)) > 0))
-            """,
+            "(instr(bentoLower(\(doc.title)), \(bind: needle)) > 0 OR instr(bentoLower(\(doc.body)), \(bind: needle)) > 0)",
             as: Bool.self
           )
         }
       }
       .order { $0.updatedAt.desc() }
-      .select { $0 }
+      .select {
+        DocListRow.Columns(id: $0.id, folderID: $0.folderID, title: $0.title, isStarred: $0.isStarred, updatedAt: $0.updatedAt)
+      }
   }
+}
+
+/// What a list of docs shows of each: never its text, which can be a long saved article and is
+/// read only up to a snippet's length.
+@Selection
+struct DocListRow: Identifiable, Hashable {
+  let id: Doc.ID
+  let folderID: DocFolder.ID?
+  let title: String
+  let isStarred: Bool
+  let updatedAt: Date
 }
